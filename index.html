@@ -221,7 +221,7 @@
 
 // ---------- Config ----------
 const CFG = {
-  shipRadius: 41, shipSpeed: 190, shipMaxHP: 100,
+  shipRadius: 32, shipSpeed: 190, shipMaxHP: 100,
   fireRange: 320, bulletSpeed: 520,
   obstacleChunkSize: 900, obstacleChunkRadius: 2, obstacleContactDamage: 14,
   bossAt: 300,          // 5:00 — chefe
@@ -230,7 +230,7 @@ const CFG = {
   telegraphTime: 0.35,  // janela de aviso visual antes de um capanga à distância atirar
   dashCooldown: 5, dashDist: 150, dashInvuln: 0.3,
   shipTurnRate: 40,      // rad/s — curva bem rápida (~0,08s pra virar 90°), quase instantânea mas ainda visível
-  shipHitRadius: 13,     // hitbox REAL pra levar dano de inimigo/bala é menor que o sprite (CFG.shipRadius) — "escapar por pouco"
+  shipHitRadius: 10,     // hitbox REAL pra levar dano de inimigo/bala é menor que o sprite (CFG.shipRadius) — "escapar por pouco"
   coinHeal: 2,           // vida curada por moeda/sucata coletada (substitui regen automática)
   maxWeaponLevel: 10,     // nível máx de cada arma equipada; cada nível soma dano e (pra armas de projétil) mais tiros
   bossMinFightTime: 30,   // segundos mínimos de luta contra o chefe, mesmo com builds muito fortes
@@ -311,7 +311,7 @@ const SPRITES = {
   barrilTank: { frames:12, img:new Image() },
   fortaleza: { frames:12, img:new Image() },
   espinhoFerro: { frames:12, img:new Image() },
-  heroShip: { frames:50, cols:10, rows:5, img:new Image() }, // "Junkyard Titan", grade uniforme 10x5
+  heroShip: { frames:50, cols:10, rows:5, img:new Image() }, // "Junkyard Titan", grade uniforme 10x5 — ver pickHeroFrame()
   aranha: { frames:12, img:new Image() },
   flecha: { frames:12, img:new Image() },
   cacadoraFerrugem: { frames:12, img:new Image() },
@@ -383,6 +383,25 @@ function dirFrame(ang, frames){
   let deg = ang*180/Math.PI + 90;
   deg = ((deg%360)+360)%360;
   return Math.round(deg/(360/n)) % n;
+}
+// A folha da "Junkyard Titan" (heroShip) é diferente das outras: só cobre METADE da volta
+// (nariz de norte a sul passando pelo oeste, ~-91° a ~178°) — a outra metade (passando pelo
+// leste) precisa ser obtida espelhando o quadro mais próximo horizontalmente. Ângulos medidos
+// empiricamente a partir do centroide dos pixels verdes dos motores em cada um dos 50 quadros
+// (motor aponta pro lado oposto do nariz; nariz = ângulo_motor + 180°).
+const HERO_NOSE_ANGLES = [-90.9,-92.5,-94.6,-96.8,-97.8,-98.6,-100.9,-108.7,-111.5,-112.8,-119.7,-124.2,-132.6,-137.2,-143.5,-147.0,-155.4,-159.6,-161.7,-167.3,-168.9,-169.3,-173.6,-175.3,-179.3,-179.5,178.3,175.6,172.9,172.0,166.8,164.9,163.0,160.9,158.3,149.8,145.5,140.0,133.8,124.6,122.5,116.7,109.6,106.9,105.6,101.4,97.6,96.8,95.0,91.3];
+function angDiff(a,b){ return Math.abs(((a-b+540)%360)-180); }
+function pickHeroFrame(angRad){
+  const angDeg = angRad*180/Math.PI;
+  const mirroredTarget = 180-angDeg;
+  let bestIdx=0, bestDiff=Infinity, bestFlip=false;
+  for(let i=0;i<HERO_NOSE_ANGLES.length;i++){
+    const dDirect = angDiff(HERO_NOSE_ANGLES[i], angDeg);
+    if(dDirect<bestDiff){ bestDiff=dDirect; bestIdx=i; bestFlip=false; }
+    const dMirror = angDiff(HERO_NOSE_ANGLES[i], mirroredTarget);
+    if(dMirror<bestDiff){ bestDiff=dMirror; bestIdx=i; bestFlip=true; }
+  }
+  return {idx:bestIdx, flip:bestFlip};
 }
 function drawDirSprite(spriteKey, ang, x, y, diameter){
   const s = SPRITES[spriteKey];
@@ -494,6 +513,14 @@ function resize(){
 }
 window.addEventListener('resize', resize);
 resize();
+
+// tenta recolher a barra de endereço do navegador mobile — como a página trava o scroll
+// (overflow:hidden/touch-action:none) o navegador nunca recebe o gesto que normalmente
+// esconde a barra sozinho, então empurramos um scroll mínimo de propósito
+function nudgeAddressBar(){ try{ window.scrollTo(0,1); }catch(e){} }
+window.addEventListener('load', ()=>{ setTimeout(nudgeAddressBar, 50); setTimeout(nudgeAddressBar, 400); });
+window.addEventListener('orientationchange', ()=>{ setTimeout(nudgeAddressBar, 300); });
+document.addEventListener('touchstart', nudgeAddressBar, {once:true, passive:true});
 
 // ---------- Sprite pixel-art procedural da nave (fallback enquanto SPRITES.heroShip não tem asset real) ----------
 // rasteriza o mesmo contorno do dardo vetorial num grid baixo-res, pra ficar visualmente consistente
@@ -1803,10 +1830,18 @@ function draw(){
     }
     let heroOk = false;
     ctx.globalAlpha = ship.invulT>0 ? (0.4+0.4*Math.abs(Math.sin(performance.now()/40))) : 1;
-    if(SPRITES.heroShip){
+    if(SPRITES.heroShip.img.complete && SPRITES.heroShip.img.naturalWidth){
+      const heroImg = SPRITES.heroShip.img;
+      const {idx,flip} = pickHeroFrame(ship.ang);
+      const col = idx%10, row = Math.floor(idx/10);
+      const fw = heroImg.naturalWidth/10, fh = heroImg.naturalHeight/5;
+      const heroDiam = CFG.shipRadius*2.4;
+      const heroScale = heroDiam/Math.max(fw,fh);
       ctx.save(); ctx.rotate(-ship.ang);
-      heroOk = drawDirSprite('heroShip', ship.ang, 0, 0, CFG.shipRadius*2.4);
+      if(flip) ctx.scale(-1,1);
+      ctx.drawImage(heroImg, col*fw,row*fh,fw,fh, -fw*heroScale/2, -fh*heroScale/2, fw*heroScale, fh*heroScale);
       ctx.restore();
+      heroOk = true;
     }
     if(!heroOk){
     ctx.imageSmoothingEnabled = false;

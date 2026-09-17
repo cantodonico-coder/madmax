@@ -126,21 +126,34 @@ derrubaria o chefe mais rápido que isso).
   sem parecer que ela anda de lado/de costas. Já foi 13 rad/s, subiu porque
   ficava perceptível demais em jogo real com mudanças de direção frequentes.
   Ver bloco `// gira até o ângulo alvo` em `update(dt)`.
-- **Hitbox justa**: o sprite visual usa `CFG.shipRadius` (41), mas o raio que
-  realmente conta pra levar dano de capanga/bala é `CFG.shipHitRadius` (13,
+- **Hitbox justa**: o sprite visual usa `CFG.shipRadius` (32), mas o raio que
+  realmente conta pra levar dano de capanga/bala é `CFG.shipHitRadius` (10,
   ~30% do visual) — dá a sensação de "escapei por pouco" mesmo quando parece
   que encostou. Usado nos dois checks de dano por contato com inimigo e por
   bala inimiga/chefe; a física de empurrão contra destroços continua usando
-  o raio visual (evita atravessar cenário visualmente).
+  o raio visual (evita atravessar cenário visualmente). `shipRadius` já foi
+  41 — reduzido porque em tela de celular (mais estreita) a nave ficava
+  desproporcionalmente grande.
 - **Cura por moeda**: cada sucata/moeda coletada cura `CFG.coinHeal` (2 hp) na
   hora — não existe regeneração passiva por tempo nem compra de vida na loja.
   Barra de vida pisca verde no momento da cura (`ship.regenFlashT`).
 - Sprite real: **"Junkyard Titan"** (`assets/hero_ship.png`), grade uniforme
   **10×5 = 50 quadros** (`SPRITES.heroShip = {frames:50, cols:10, rows:5}`).
-  `drawDirSprite()` suporta 3 layouts de folha — tira uniforme (padrão), grade
-  uniforme (`cols`/`rows`, usado aqui) ou tira com recortes irregulares
-  (`frameRects`, usado pela versão antiga da nave "MADMAX_LOOP_SPIRAL", hoje
-  descartada). Existe também `assets/hero_ship_pose.png` — uma renderização
+  **Atenção — essa folha só cobre METADE da volta** (nariz de norte a sul
+  passando pelo oeste, ~50 quadros = 180°, não 360°); a outra metade (passando
+  pelo leste) é obtida espelhando horizontalmente o quadro espelhável mais
+  próximo (`ctx.scale(-1,1)`). Isso foi descoberto medindo o centroide dos
+  pixels verdes dos motores em cada um dos 50 quadros (script Python com PIL)
+  — a posição deles não fechava 360° em rotação uniforme, só ~178°. A tabela
+  `HERO_NOSE_ANGLES` (50 valores, ângulo do nariz por quadro, medido
+  empiricamente) e a função `pickHeroFrame(ang)` escolhem o quadro mais
+  próximo (direto ou espelhado, o que for mais perto) — usada só pra essa nave,
+  não pelo `drawDirSprite()` genérico (que continua servindo os capangas/chefe,
+  cujas folhas têm 360° reais em sentido horário). Se trocar esse sprite de
+  novo por um com folha de 360° graus uniforme, **essa lógica toda de
+  `pickHeroFrame`/`HERO_NOSE_ANGLES`/espelhamento vira desnecessária** — nesse
+  caso simplificar chamando `drawDirSprite('heroShip',...)` como os outros
+  sprites fazem. Existe também `assets/hero_ship_pose.png` — uma renderização
   única (não-grade) da mesma nave, guardada como referência/arte mas não usada
   na rotação em jogo. Sem sprite carregado, cai num fallback pixel-art gerado
   proceduralmente.
@@ -316,7 +329,14 @@ carregar.
 - **Português** em toda UI, comentários de código e textos do jogo.
 - Sprites de personagens/capangas usam sempre 12 direções (frame 0 = norte,
   sentido horário) via `dirFrame()`/`drawDirSprite()` — exceto a nave do
-  jogador (20 quadros irregulares, ver acima, suportado via `frameRects`).
+  jogador (folha de 50 quadros cobrindo só 180°+espelhamento, ver seção acima).
+- **Barra de endereço do navegador mobile**: como a página trava scroll
+  (`overflow:hidden`, `touch-action:none`) o navegador nunca recebe o gesto
+  que normalmente esconde a barra sozinho. `nudgeAddressBar()` força um
+  `window.scrollTo(0,1)` no load/orientationchange/primeiro toque pra tentar
+  recolher ela. Se ainda incomodar em algum aparelho específico, é conhecido —
+  não tem solução 100% garantida multiplataforma pra isso sem virar um PWA
+  instalado (`display:standalone` no manifest elimina a barra de vez).
 - Todo timer de gameplay (`ship.hitFlashT`, `dashCd`, `invulT`, etc.) é
   decrementado em `update(dt)` e ignorado quando `gameOver || choosingUpgrade`
   — pausar a escolha de upgrade pausa o jogo inteiro de propósito.
