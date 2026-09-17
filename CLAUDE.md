@@ -196,15 +196,24 @@ acabar munição**:
 - **Mira própria por arma** (`WEAPONS[id].aimMode`, resolvido em
   `computeWeaponAim()`) — cada arma tem uma "assinatura visual" diferente em
   vez de todas mirarem no inimigo mais próximo:
-  - `nearest` (padrão, sem campo) — pea, laser, rkl88.
-  - `moving` — metralha: atira na direção que a nave está se movendo.
-  - `retreat` — leque: atira na direção OPOSTA ao movimento (retaguarda).
-  - `random` — granada, tnt: atira num ponto aleatório dentro do alcance.
+  - `rank` — pea (aimRank 0, o mais próximo), leque (1, 2º mais próximo),
+    metralha (2), laser (3), rkl88 (4) — `nthNearestEnemyOrBoss(x,y,rank)`
+    ordena por distância e pega a posição N da fila. **Espalha o dano entre
+    vários capangas** em vez de todas as armas baterem no mesmo alvo — isso
+    substituiu uma versão anterior onde metralha/leque miravam por direção de
+    movimento (`moving`/`retreat`), trocado a pedido do usuário porque não
+    lia como "focar em inimigos". Se sobrar menos capangas na tela que ranks
+    pedidos, cai pro último disponível (não erra/trava).
+  - `random` — granada, tnt: atira num ponto aleatório dentro do alcance
+    (esses dois mantêm a regra de área, não fazem parte do "rank").
   - `heavy` — míssil: persegue o capanga vivo de maior HP do Grupo C
     (`heaviestGroupCEnemy()`), cai pro inimigo mais próximo se não houver
     nenhum Grupo C na tela.
-  - Modos `moving`/`retreat`/`random` sempre têm mira válida (não dependem de
-    ter inimigo por perto); `nearest`/`heavy` só disparam com alvo no alcance.
+  - `moving`/`retreat` (atira na direção que anda / oposta) ainda existem no
+    código (`computeWeaponAim()`, `dirAimPoint()`) mas nenhuma arma usa mais —
+    ficaram disponíveis caso queira uma arma nova com esse comportamento.
+  - Modos `random` sempre tem mira válida (não depende de ter inimigo por
+    perto); `rank`/`heavy` só disparam com alvo no alcance.
 - **Rajada (metralha)**: em vez de cadência constante, acumula por
   `WEAPONS.metralha.burst.chargeTime` (1,5s de silêncio) e solta
   `burst.shots` tiros (10) com `burst.shotInterval` (0,045s) entre eles —

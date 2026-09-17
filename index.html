@@ -270,17 +270,18 @@ function getPhase(t){
 
 // ---------- Armas: básicas já caem do céu; as demais entram no sorteio quando desbloqueadas no menu ----------
 // aimMode define a "assinatura visual" de cada arma — não mira todo mundo igual:
-//   nearest (padrão) = inimigo mais próximo · moving = na direção que a nave anda ·
-//   retreat = direção oposta ao movimento (retaguarda) · random = ponto aleatório na arena · heavy = capanga mais forte do Grupo C
+//   rank = mira o N-ésimo capanga mais próximo (aimRank: 0=mais perto, 1=2º mais perto...) —
+//     espalha o dano entre vários inimigos em vez de todas as armas baterem no mesmo alvo.
+//   random = ponto aleatório na arena (área) · heavy = capanga mais forte do Grupo C (míssil persegue o "chefe" dos comuns).
 const WEAPONS = {
-  pea:      {name:'CANHÃO SUCATA', basic:true,  infinite:true, rate:4.5, dmg:12, ammo:Infinity, cost:0,   type:'straight', pellets:2, gap:9, color:'#c6ff1e'},
-  leque:    {name:'LEQUE TRIPLO',  basic:true,  rate:3.2, dmg:8,  ammo:40, cost:0,   type:'spread',   pellets:5, spread:0.22, color:'#00e5ff', aimMode:'retreat'},
-  metralha: {name:'METRALHA',      basic:true,  rate:9,   dmg:7,  ammo:70, cost:0,   type:'straight', pellets:1, color:'#ffd23f', aimMode:'moving',
+  pea:      {name:'CANHÃO SUCATA', basic:true,  infinite:true, rate:4.5, dmg:12, ammo:Infinity, cost:0,   type:'straight', pellets:2, gap:9, color:'#c6ff1e', aimMode:'rank', aimRank:0},
+  leque:    {name:'LEQUE TRIPLO',  basic:true,  rate:3.2, dmg:8,  ammo:40, cost:0,   type:'spread',   pellets:5, spread:0.22, color:'#00e5ff', aimMode:'rank', aimRank:1},
+  metralha: {name:'METRALHA',      basic:true,  rate:9,   dmg:7,  ammo:70, cost:0,   type:'straight', pellets:1, color:'#ffd23f', aimMode:'rank', aimRank:2,
              burst:{chargeTime:1.5, shots:10, shotInterval:0.045}},
   missil:   {name:'MÍSSIL TELEGUIADO', basic:false, rate:1.3, dmg:32, ammo:18, cost:60,  type:'homing',   pellets:2, spread:0.28, color:'#ff2e97', aimMode:'heavy'},
-  laser:    {name:'LASER PERFURANTE',  basic:false, rate:0.9, dmg:9,  ammo:26, cost:90,  type:'pierce',   color:'#00e5ff'},
+  laser:    {name:'LASER PERFURANTE',  basic:false, rate:0.9, dmg:9,  ammo:26, cost:90,  type:'pierce',   color:'#00e5ff', aimMode:'rank', aimRank:3},
   granada:  {name:'GRANADA ESPACIAL',  basic:false, rate:1.0, dmg:55, ammo:10, cost:80,  type:'explosive',radius:70, color:'#ff7a1e', aimMode:'random'},
-  rkl88:    {name:'RKL-88 PESADO',     basic:false, rate:0.55,dmg:95, ammo:6,  cost:110, type:'explosive',radius:55, color:'#c69a3f'},
+  rkl88:    {name:'RKL-88 PESADO',     basic:false, rate:0.55,dmg:95, ammo:6,  cost:110, type:'explosive',radius:55, color:'#c69a3f', aimMode:'rank', aimRank:4},
   tnt:      {name:'TNT DEMOLIDOR',     basic:false, rate:0.8, dmg:30, ammo:12, cost:70,  type:'explosive',radius:110,color:'#ffcf3f', aimMode:'random'},
 };
 const BASIC_WEAPON_IDS = Object.keys(WEAPONS).filter(id=>WEAPONS[id].basic && id!=='pea');
@@ -1006,6 +1007,15 @@ function nearestEnemyOrBoss(x,y){
   if(boss){ const d=dist2(x,y,boss.x,boss.y); if(d<bd){bd=d;best=boss;} }
   return best;
 }
+// rank=0 é o mais próximo, rank=1 o 2º mais próximo, etc — usado pra cada arma mirar um
+// capanga diferente em vez de todas baterem no mesmo. Sobra de rank cai no mais próximo disponível.
+function nthNearestEnemyOrBoss(x,y,rank){
+  const list = enemies.slice();
+  if(boss) list.push(boss);
+  if(list.length===0) return null;
+  list.sort((a,b)=>dist2(x,y,a.x,a.y)-dist2(x,y,b.x,b.y));
+  return list[Math.min(rank, list.length-1)];
+}
 function heaviestGroupCEnemy(){
   let best=null, bestHp=-1;
   enemies.forEach(e=>{
@@ -1025,6 +1035,7 @@ function computeWeaponAim(weaponId){
   if(w.aimMode==='retreat') return dirAimPoint(moveAng+Math.PI);
   if(w.aimMode==='random') return { x: ship.x+Math.cos(rand(0,Math.PI*2))*rand(80,CFG.fireRange), y: ship.y+Math.sin(rand(0,Math.PI*2))*rand(80,CFG.fireRange) };
   if(w.aimMode==='heavy') return heaviestGroupCEnemy();
+  if(w.aimMode==='rank') return nthNearestEnemyOrBoss(ship.x,ship.y,w.aimRank||0);
   return nearestEnemyOrBoss(ship.x,ship.y);
 }
 
@@ -1304,7 +1315,7 @@ function update(dt){
       if(boss && Math.hypot(ship.x-boss.x,ship.y-boss.y) < orbitRadius+boss.r){ boss.hp -= dmgTick; boss.hitFlashT=0.09; }
       continue;
     }
-    const needsRealTarget = !w.aimMode || w.aimMode==='nearest' || w.aimMode==='heavy';
+    const needsRealTarget = !w.aimMode || w.aimMode==='nearest' || w.aimMode==='heavy' || w.aimMode==='rank';
     if(w.burst){
       if(wState.burstShotsLeft>0){
         wState.burstCd -= dt;
