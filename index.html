@@ -122,12 +122,12 @@
   #goProgressBar{height:100%;width:0%;background:linear-gradient(90deg,var(--neon-pink),var(--neon-lime));transition:width .6s ease-out;}
   #goMotivation{font-size:10px;color:var(--neon-lime);text-shadow:0 0 6px var(--neon-lime);margin-top:6px;letter-spacing:.5px;}
 
-  /* Minimapa */
-  #miniMapWrap{position:absolute;right:10px;bottom:env(safe-area-inset-bottom,10px);z-index:11;
+  /* Minimapa — lado esquerdo, entre o CASCO (topo) e o joystick MOVER (embaixo) */
+  #miniMapWrap{position:absolute;left:10px;top:96px;z-index:11;
     width:88px;height:88px;border-radius:10px;border:2px solid var(--neon-cyan);
     background:rgba(4,10,12,.55);box-shadow:0 0 10px rgba(0,229,255,.35);
     transition:width .22s,height .22s;pointer-events:auto;cursor:pointer;overflow:hidden;}
-  #miniMapWrap.expanded{width:min(78vw,320px);height:min(78vw,320px);right:calc(50% - min(39vw,160px));}
+  #miniMapWrap.expanded{width:min(78vw,320px);height:min(78vw,320px);left:calc(50% - min(39vw,160px));}
   #miniMapCanvas{width:100%;height:100%;display:block;}
   #miniMapLabel{position:absolute;top:2px;left:6px;font-size:8px;letter-spacing:1px;color:var(--neon-cyan);
     text-shadow:0 0 6px var(--neon-cyan);pointer-events:none;}
@@ -135,13 +135,13 @@
     text-shadow:0 0 6px var(--neon-lime);pointer-events:none;}
 
   /* Botão de habilidade (dash) */
-  #dashBtnWrap{position:absolute;right:14px;bottom:112px;width:78px;height:78px;z-index:9;touch-action:none;}
+  #dashBtnWrap{position:absolute;right:14px;top:56px;width:39px;height:39px;z-index:9;touch-action:none;}
   #dashBtnCooldown{position:absolute;inset:-2px;border-radius:50%;pointer-events:none;
     background:conic-gradient(rgba(4,10,12,.85) 0deg, rgba(4,10,12,.85) 0deg, transparent 0deg);
     transition:background .08s linear;}
   #dashBtn{position:absolute;inset:0;width:100%;height:100%;border-radius:50%;
     border:2px solid var(--neon-lime);background:rgba(198,255,30,.08);color:var(--neon-lime);
-    font-family:'Courier New',monospace;font-weight:700;font-size:10px;letter-spacing:1px;
+    font-family:'Courier New',monospace;font-weight:700;font-size:6px;letter-spacing:.5px;
     text-shadow:0 0 6px var(--neon-lime);box-shadow:0 0 10px rgba(198,255,30,.35);}
   #dashBtn:disabled{color:#4a5a30;border-color:#3a4530;text-shadow:none;box-shadow:none;}
 </style>
@@ -153,6 +153,7 @@
 <audio id="music_phase2" loop preload="none" src="audio/phase2.ogg"></audio>
 <audio id="music_phase3" loop preload="none" src="audio/phase3.ogg"></audio>
 <audio id="music_phase4" loop preload="none" src="audio/phase4.ogg"></audio>
+<audio id="music_phase5" loop preload="none" src="audio/phase5.opus"></audio>
 <div id="wrap">
   <canvas id="game"></canvas>
   <div id="vignette"></div>
@@ -522,6 +523,15 @@ function nudgeAddressBar(){ try{ window.scrollTo(0,1); }catch(e){} }
 window.addEventListener('load', ()=>{ setTimeout(nudgeAddressBar, 50); setTimeout(nudgeAddressBar, 400); });
 window.addEventListener('orientationchange', ()=>{ setTimeout(nudgeAddressBar, 300); });
 document.addEventListener('touchstart', nudgeAddressBar, {once:true, passive:true});
+
+function requestGameFullscreen(){
+  var el = document.documentElement;
+  var req = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
+  try{
+    if(req){ var p = req.call(el); if(p && p.catch) p.catch(()=>{}); }
+  }catch(e){}
+  nudgeAddressBar();
+}
 
 // ---------- Sprite pixel-art procedural da nave (fallback enquanto SPRITES.heroShip não tem asset real) ----------
 // rasteriza o mesmo contorno do dardo vetorial num grid baixo-res, pra ficar visualmente consistente
@@ -934,6 +944,7 @@ const MUSIC_TRACKS = {
   phase2: document.getElementById('music_phase2'),
   phase3: document.getElementById('music_phase3'),
   phase4: document.getElementById('music_phase4'),
+  phase5: document.getElementById('music_phase5'),
 };
 Object.values(MUSIC_TRACKS).forEach(a=>{ a.volume=0; });
 let currentMusicKey = null;
@@ -952,7 +963,14 @@ function playMusic(key, vol){
   let v2 = 0;
   const fadeIn = setInterval(()=>{ v2=Math.min(target,v2+0.06); next.volume=v2; if(v2>=target) clearInterval(fadeIn); }, 40);
 }
-function musicKeyForPhase(idx){ return ['phase1','phase2','phase3','phase4'][idx] || 'phase4'; }
+// Rotação sequencial das faixas de gameplay: nunca repete a atual nem a anterior —
+// avança uma posição no ciclo a cada troca de fase / pós-chefe / início de corrida.
+const GAMEPLAY_TRACKS = ['phase1','phase2','phase3','phase4','phase5'];
+let gameplayTrackIdx = -1;
+function nextGameplayTrack(){
+  gameplayTrackIdx = (gameplayTrackIdx+1) % GAMEPLAY_TRACKS.length;
+  return GAMEPLAY_TRACKS[gameplayTrackIdx];
+}
 function shake(mag,t){ shakeMag=Math.max(shakeMag,mag); shakeT=Math.max(shakeT,t); }
 function hitStop(t){ hitStopT=Math.max(hitStopT,t); }
 function damageShip(amount, cause){
@@ -1151,7 +1169,7 @@ function update(dt){
       const tag=document.getElementById('alarmTag'); tag.classList.add('show');
       setTimeout(()=>tag.classList.remove('show'), 3200);
       vibrate(80);
-      playMusic(musicKeyForPhase(phaseIdx));
+      playMusic(nextGameplayTrack());
       if(phaseIdx===1 && !burstDone){
         burstDone = true;
         for(let i=0;i<10 && enemies.length<phase.cap;i++) spawnEnemy();
@@ -1502,7 +1520,7 @@ function update(dt){
       score += 500; scrap += 40;
       boss=null; bossSpawned=false; waveTime = CFG.bossAt-40; // dá um respiro antes do próximo ciclo
       curPhaseIdx = WAVE_PHASES.indexOf(getPhase(waveTime));
-      playMusic(musicKeyForPhase(curPhaseIdx));
+      playMusic(nextGameplayTrack());
       document.getElementById('bossHpWrap').style.display='none';
       document.getElementById('waveLabelText').textContent='ONDA';
       document.getElementById('waveNum').style.display='inline';
@@ -2028,9 +2046,10 @@ tabArsenalBtn.addEventListener('click', ()=>{
 
 document.getElementById('startBtn').addEventListener('click', ()=>{
   ensureAudio();
+  requestGameFullscreen();
   document.getElementById('titleScreen').classList.add('hidden');
   resetGame(); started = true;
-  playMusic(musicKeyForPhase(0));
+  playMusic(nextGameplayTrack());
   if(screen.orientation && screen.orientation.lock){ screen.orientation.lock('portrait').catch(()=>{}); }
 });
 document.getElementById('retryBtn').addEventListener('click', ()=>{

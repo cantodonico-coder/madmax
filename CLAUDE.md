@@ -331,7 +331,23 @@ carregar.
   (`waveTime>=240`), mostra uma mensagem motivacional extra (`#goMotivation`)
   incentivando tentar de novo.
 - **Minimapa**: mostra coordenadas da nave (`#miniMapCoords`, "X:.. Y:..")
-  no canto, atualizado em `drawMiniMap()`.
+  no canto, atualizado em `drawMiniMap()`. Fica do lado **esquerdo**
+  (`#miniMapWrap{left:10px;top:96px}`), entre a barra de CASCO/chips de arma
+  (`#hpWrap`) em cima e o joystick MOVER (`#joyMock`) embaixo — posição
+  escolhida pra não sobrepor nenhum dos dois.
+- **Botão de DASH**: círculo pequeno (`#dashBtnWrap`, 39px = 50% do tamanho
+  original) no canto superior direito, logo abaixo do placar
+  (`#scoreWrap`), em vez de grande e mais para baixo como antes.
+- **Trilha sonora de gameplay em rotação sequencial**: `GAMEPLAY_TRACKS =
+  ['phase1','phase2','phase3','phase4','phase5']` (5 faixas, a 5ª é
+  `audio/phase5.opus`). `nextGameplayTrack()` avança um índice persistente
+  (`gameplayTrackIdx`) em ciclo fechado (`(idx+1) % length`) — chamada toda
+  vez que a fase muda, após derrotar o chefe, e no início da corrida. Isso
+  garante que a mesma faixa nunca toca duas vezes seguidas nem repete a
+  anterior, resolvendo o problema de repetição que o mapeamento fixo
+  fase→faixa causava (principalmente depois de bosses, já que `waveTime`
+  volta pra trás e caía sempre na mesma fase tardia). Substituiu a função
+  antiga `musicKeyForPhase(idx)`.
 
 ## Convenções / decisões de projeto
 
@@ -342,10 +358,16 @@ carregar.
 - **Barra de endereço do navegador mobile**: como a página trava scroll
   (`overflow:hidden`, `touch-action:none`) o navegador nunca recebe o gesto
   que normalmente esconde a barra sozinho. `nudgeAddressBar()` força um
-  `window.scrollTo(0,1)` no load/orientationchange/primeiro toque pra tentar
-  recolher ela. Se ainda incomodar em algum aparelho específico, é conhecido —
-  não tem solução 100% garantida multiplataforma pra isso sem virar um PWA
-  instalado (`display:standalone` no manifest elimina a barra de vez).
+  `window.scrollTo(0,1)` no load/orientationchange/primeiro toque como
+  fallback leve. A solução principal é `requestGameFullscreen()`, chamada no
+  clique do botão "ENTRAR NA ARENA" (gesto do usuário, exigido pela
+  Fullscreen API) — pede `documentElement.requestFullscreen()` (com
+  fallbacks `webkit`/`moz`/`ms`) o que remove a barra de verdade em
+  navegadores que suportam a API (Chrome/Android, a maioria dos Android
+  em geral). Em navegadores sem suporte total (ex.: Safari iOS fora de
+  PWA instalado) cai de volta pro nudge de scroll — não tem solução 100%
+  garantida multiplataforma sem virar PWA instalado
+  (`display:standalone` no manifest elimina a barra de vez).
 - Todo timer de gameplay (`ship.hitFlashT`, `dashCd`, `invulT`, etc.) é
   decrementado em `update(dt)` e ignorado quando `gameOver || choosingUpgrade`
   — pausar a escolha de upgrade pausa o jogo inteiro de propósito.
