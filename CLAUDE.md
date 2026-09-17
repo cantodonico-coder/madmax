@@ -336,8 +336,8 @@ carregar.
   (`#hpWrap`) em cima e o joystick MOVER (`#joyMock`) embaixo — posição
   escolhida pra não sobrepor nenhum dos dois.
 - **Botão de DASH**: círculo pequeno (`#dashBtnWrap`, 39px = 50% do tamanho
-  original) no canto superior direito, logo abaixo do placar
-  (`#scoreWrap`), em vez de grande e mais para baixo como antes.
+  original) no canto superior direito, abaixo do placar (`#scoreWrap`) e da
+  aba de áudio/pausa, em vez de grande e mais para baixo como antes.
 - **Trilha sonora de gameplay em rotação sequencial**: `GAMEPLAY_TRACKS =
   ['phase1','phase2','phase3','phase4','phase5']` (5 faixas, a 5ª é
   `audio/phase5.opus`). `nextGameplayTrack()` avança um índice persistente
@@ -348,10 +348,12 @@ carregar.
   fase→faixa causava (principalmente depois de bosses, já que `waveTime`
   volta pra trás e caía sempre na mesma fase tardia). Substituiu a função
   antiga `musicKeyForPhase(idx)`.
-- **Aba retrátil de áudio/pausa** (`#settingsWrap`): tab fixa na borda direita,
-  centralizada verticalmente, com ícone de alto-falante (`#settingsTabBtn`).
-  Clicar abre/fecha (`.open`) um painel (`#settingsPanel`, transição de
-  `width`) com slider de volume mestre (`#volumeSlider`), botão MUDO
+- **Aba retrátil de áudio/pausa** (`#settingsWrap`): tab fixa no canto
+  **superior** direito (acima do placar e do dash, que desceram pra abrir
+  espaço), mostrando só o ícone de alto-falante quando fechada
+  (`#settingsTabBtn`, 30×30px). Clicar abre/fecha (`.open`) um painel
+  (`#settingsPanel`, transição de `width`, expande pra esquerda por cima do
+  placar) com slider de volume mestre (`#volumeSlider`), botão MUDO
   (`#muteBtn`) e botão PAUSA (`#pauseBtn`). Volume e mudo persistem entre
   sessões em `localStorage` (`arenamad_audio_v1`, separado do save de
   progresso). `effectiveVolume()` = `muted ? 0 : masterVolume`, aplicado a
