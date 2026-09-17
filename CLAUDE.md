@@ -348,6 +348,22 @@ carregar.
   fase→faixa causava (principalmente depois de bosses, já que `waveTime`
   volta pra trás e caía sempre na mesma fase tardia). Substituiu a função
   antiga `musicKeyForPhase(idx)`.
+- **Aba retrátil de áudio/pausa** (`#settingsWrap`): tab fixa na borda direita,
+  centralizada verticalmente, com ícone de alto-falante (`#settingsTabBtn`).
+  Clicar abre/fecha (`.open`) um painel (`#settingsPanel`, transição de
+  `width`) com slider de volume mestre (`#volumeSlider`), botão MUDO
+  (`#muteBtn`) e botão PAUSA (`#pauseBtn`). Volume e mudo persistem entre
+  sessões em `localStorage` (`arenamad_audio_v1`, separado do save de
+  progresso). `effectiveVolume()` = `muted ? 0 : masterVolume`, aplicado a
+  dois sistemas de áudio diferentes: os SFX sintetizados via Web Audio API
+  (todos ligados a um único `sfxMasterGain`, criado em `ensureAudio()`, em
+  vez de cada oscilador conectar direto em `ac.destination`) e a música
+  (`MUSIC_TRACKS`, volume do `<audio>` atual recalculado em
+  `applyAudioSettings()`). Pausa (`setPaused()`) congela o loop inteiro —
+  `update(dt)`, decaimento de `shakeT`/`hitStopT`/`levelUpFlashT` — e pausa
+  o `<audio>` da faixa atual, mostrando overlay `#pauseOverlay` com
+  "⏸ PAUSADO". `resetGame()` sempre reseta `paused=false` no início de cada
+  corrida pra não começar travado.
 
 ## Convenções / decisões de projeto
 

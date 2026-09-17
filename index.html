@@ -144,6 +144,27 @@
     font-family:'Courier New',monospace;font-weight:700;font-size:6px;letter-spacing:.5px;
     text-shadow:0 0 6px var(--neon-lime);box-shadow:0 0 10px rgba(198,255,30,.35);}
   #dashBtn:disabled{color:#4a5a30;border-color:#3a4530;text-shadow:none;box-shadow:none;}
+
+  /* Aba retrátil de áudio/pausa */
+  #settingsWrap{position:absolute;right:0;top:50%;transform:translateY(-50%);z-index:13;
+    display:flex;align-items:stretch;touch-action:none;}
+  #settingsTabBtn{width:26px;flex:0 0 26px;border:2px solid var(--neon-cyan);border-radius:8px 0 0 8px;
+    background:rgba(4,10,12,.85);color:var(--neon-cyan);font-size:14px;cursor:pointer;padding:0;
+    box-shadow:0 0 10px rgba(0,229,255,.3);}
+  #settingsPanel{width:0;overflow:hidden;opacity:0;box-sizing:border-box;
+    transition:width .22s,opacity .18s,padding .22s;
+    display:flex;flex-direction:column;gap:8px;
+    background:rgba(4,10,12,.9);border:2px solid var(--neon-cyan);border-right:none;
+    box-shadow:0 0 10px rgba(0,229,255,.3);}
+  #settingsWrap.open #settingsPanel{width:150px;opacity:1;padding:10px 12px;}
+  .settingsRow{display:flex;align-items:center;gap:6px;font-size:9px;letter-spacing:1px;color:var(--neon-cyan);}
+  #volumeSlider{flex:1;accent-color:var(--neon-cyan);}
+  #muteBtn, #pauseBtn{width:100%;box-sizing:border-box;text-align:center;white-space:nowrap;}
+  #muteBtn.active{background:rgba(255,46,151,.15);border-color:var(--neon-pink);color:var(--neon-pink);}
+  #pauseOverlay{position:absolute;inset:0;z-index:25;display:flex;align-items:center;justify-content:center;
+    background:rgba(4,10,12,.55);backdrop-filter:blur(1px);}
+  #pauseOverlay .sub2{font-family:'Arial Black',Arial,sans-serif;font-weight:900;font-style:italic;
+    font-size:22px;letter-spacing:2px;color:var(--neon-cyan);text-shadow:0 0 14px var(--neon-cyan);}
 </style>
 </head>
 <body>
@@ -179,6 +200,17 @@
   </div>
 
   <div id="joyZone"><div id="joyMock">MOVER</div><div id="joyBase"></div><div id="joyStick"></div></div>
+
+  <div id="settingsWrap">
+    <div id="settingsPanel">
+      <div class="settingsRow">🔊<input type="range" id="volumeSlider" min="0" max="100" value="100"></div>
+      <button id="muteBtn" class="ghostBtn">🔇 MUDO</button>
+      <button id="pauseBtn" class="ghostBtn">⏸ PAUSA</button>
+    </div>
+    <button id="settingsTabBtn">🔊</button>
+  </div>
+
+  <div id="pauseOverlay" class="hidden"><div class="sub2">⏸ PAUSADO</div></div>
 
   <div id="titleScreen" class="screen">
     <div id="titleLogo"><img src="assets/logo_intro.jpg" alt="ARENA MADMAX"></div>
@@ -731,6 +763,9 @@ function driftObstacles(dt){
 }
 
 function resetGame(){
+  paused = false;
+  document.getElementById('pauseOverlay').classList.add('hidden');
+  document.getElementById('pauseBtn').textContent = '⏸ PAUSA';
   ship = {x:0, y:0, hp:CFG.shipMaxHP, ang:0, lastHitBy:null, lastFireColor:'#c6ff1e',
     hitFlashT:0, vibCd:0, muzzleFlashT:0,
     dashCd:0, invulT:0, regenFlashT:0,
@@ -833,11 +868,39 @@ function updateDashHud(){
   dashBtn.disabled = ship.dashCd>0;
 }
 
+// ---------- Configurações de áudio (volume/mudo) — persistem entre sessões ----------
+const AUDIO_SAVE_KEY = 'arenamad_audio_v1';
+let masterVolume = 1, muted = false;
+(function loadAudioSettings(){
+  try{
+    const raw = localStorage.getItem(AUDIO_SAVE_KEY);
+    if(raw){
+      const d = JSON.parse(raw);
+      if(typeof d.volume === 'number') masterVolume = Math.max(0, Math.min(1, d.volume));
+      if(typeof d.muted === 'boolean') muted = d.muted;
+    }
+  }catch(e){}
+})();
+function saveAudioSettings(){
+  try{ localStorage.setItem(AUDIO_SAVE_KEY, JSON.stringify({volume:masterVolume, muted})); }catch(e){}
+}
+function effectiveVolume(){ return muted ? 0 : masterVolume; }
+function applyAudioSettings(){
+  if(sfxMasterGain) sfxMasterGain.gain.value = effectiveVolume();
+  if(currentMusicKey && MUSIC_TRACKS[currentMusicKey]){
+    MUSIC_TRACKS[currentMusicKey].volume = 0.55 * effectiveVolume();
+  }
+}
+
 // ---------- Áudio: SFX sintetizados via Web Audio API (sem arquivos externos) ----------
 let actx = null;
+let sfxMasterGain = null;
 function ensureAudio(){
   if(!actx){
     try{ actx = new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ return null; }
+    sfxMasterGain = actx.createGain();
+    sfxMasterGain.gain.value = effectiveVolume();
+    sfxMasterGain.connect(actx.destination);
   }
   if(actx.state==='suspended') actx.resume().catch(()=>{});
   return actx;
@@ -866,7 +929,7 @@ function playShot(weaponId){
   osc.frequency.exponentialRampToValueAtTime(c.f1, t0+c.dur);
   gain.gain.setValueAtTime(c.vol, t0);
   gain.gain.exponentialRampToValueAtTime(0.0001, t0+c.dur);
-  osc.connect(gain); gain.connect(ac.destination);
+  osc.connect(gain); gain.connect(sfxMasterGain);
   osc.start(t0); osc.stop(t0+c.dur+0.02);
 }
 function playHitTick(){
@@ -877,7 +940,7 @@ function playHitTick(){
   osc.type='square'; osc.frequency.setValueAtTime(1800*pitch,t0);
   osc.frequency.exponentialRampToValueAtTime(400*pitch,t0+0.04);
   gain.gain.setValueAtTime(0.05,t0); gain.gain.exponentialRampToValueAtTime(0.0001,t0+0.05);
-  osc.connect(gain); gain.connect(ac.destination);
+  osc.connect(gain); gain.connect(sfxMasterGain);
   osc.start(t0); osc.stop(t0+0.06);
 }
 function playExplosion(big){
@@ -895,7 +958,7 @@ function playExplosion(big){
   filter.frequency.exponentialRampToValueAtTime(120, t0+dur);
   const gain = ac.createGain(); gain.gain.setValueAtTime(big?0.35:0.18, t0);
   gain.gain.exponentialRampToValueAtTime(0.0001, t0+dur);
-  noise.connect(filter); filter.connect(gain); gain.connect(ac.destination);
+  noise.connect(filter); filter.connect(gain); gain.connect(sfxMasterGain);
   noise.start(t0);
 }
 function playCoin(){
@@ -907,7 +970,7 @@ function playCoin(){
     gain.gain.setValueAtTime(0.001, t0+i*0.045);
     gain.gain.exponentialRampToValueAtTime(0.13, t0+i*0.045+0.01);
     gain.gain.exponentialRampToValueAtTime(0.0001, t0+i*0.045+0.16);
-    osc.connect(gain); gain.connect(ac.destination);
+    osc.connect(gain); gain.connect(sfxMasterGain);
     osc.start(t0+i*0.045); osc.stop(t0+i*0.045+0.18);
   });
 }
@@ -919,7 +982,7 @@ function playImpact(big){
   osc.frequency.exponentialRampToValueAtTime(big?50:90, t0+0.09);
   gain.gain.setValueAtTime(big?0.22:0.13, t0);
   gain.gain.exponentialRampToValueAtTime(0.0001, t0+0.12);
-  osc.connect(gain); gain.connect(ac.destination);
+  osc.connect(gain); gain.connect(sfxMasterGain);
   osc.start(t0); osc.stop(t0+0.14);
 }
 function playDash(){
@@ -931,7 +994,7 @@ function playDash(){
   gain.gain.setValueAtTime(0.001,t0);
   gain.gain.exponentialRampToValueAtTime(0.18,t0+0.02);
   gain.gain.exponentialRampToValueAtTime(0.0001,t0+0.16);
-  osc.connect(gain); gain.connect(ac.destination);
+  osc.connect(gain); gain.connect(sfxMasterGain);
   osc.start(t0); osc.stop(t0+0.18);
 }
 
@@ -951,7 +1014,7 @@ let currentMusicKey = null;
 function playMusic(key, vol){
   if(currentMusicKey===key) return;
   const prevKey = currentMusicKey; currentMusicKey = key;
-  const target = vol===undefined?0.55:vol;
+  const target = (vol===undefined?0.55:vol) * effectiveVolume();
   if(prevKey && MUSIC_TRACKS[prevKey]){
     const prev = MUSIC_TRACKS[prevKey];
     let v = prev.volume;
@@ -1943,12 +2006,25 @@ function draw(){
 }
 
 // ---------- Loop ----------
+let paused = false;
+function setPaused(p){
+  if(!started || gameOver) return;
+  paused = p;
+  const cur = currentMusicKey && MUSIC_TRACKS[currentMusicKey];
+  if(cur){ if(paused) cur.pause(); else cur.play().catch(()=>{}); }
+  document.getElementById('pauseOverlay').classList.toggle('hidden', !paused);
+  document.getElementById('pauseBtn').textContent = paused ? '▶ CONTINUAR' : '⏸ PAUSA';
+}
+document.getElementById('pauseBtn').addEventListener('click', ()=> setPaused(!paused));
+
 function frame(now){
   let dt = Math.min(0.05, (now-lastT)/1000); lastT = now;
-  if(hitStopT>0){ hitStopT -= dt; dt *= 0.15; }
-  if(shakeT>0){ shakeT -= dt; if(shakeT<=0) shakeMag=0; }
-  if(levelUpFlashT>0) levelUpFlashT = Math.max(0, levelUpFlashT-dt);
-  if(started) update(dt);
+  if(!paused){
+    if(hitStopT>0){ hitStopT -= dt; dt *= 0.15; }
+    if(shakeT>0){ shakeT -= dt; if(shakeT<=0) shakeMag=0; }
+    if(levelUpFlashT>0) levelUpFlashT = Math.max(0, levelUpFlashT-dt);
+    if(started) update(dt);
+  }
   draw();
   miniMapWrap.style.display = started ? 'block' : 'none';
   dashBtnWrap.style.display = started ? 'block' : 'none';
@@ -2043,6 +2119,34 @@ tabArsenalBtn.addEventListener('click', ()=>{
   tabArsenalBtn.classList.add('active'); tabShopBtn.classList.remove('active');
   arsenalPanelEl.classList.remove('hidden'); metaShopPanelEl.classList.add('hidden');
 });
+
+// ---------- Aba retrátil de áudio/pausa ----------
+(function setupSettingsTab(){
+  const wrap = document.getElementById('settingsWrap');
+  const tabBtn = document.getElementById('settingsTabBtn');
+  const slider = document.getElementById('volumeSlider');
+  const muteBtn = document.getElementById('muteBtn');
+  tabBtn.addEventListener('click', ()=> wrap.classList.toggle('open'));
+  slider.value = Math.round(masterVolume*100);
+  function refreshMuteUI(){
+    muteBtn.textContent = muted ? '🔈 SOM' : '🔇 MUDO';
+    muteBtn.classList.toggle('active', muted);
+    tabBtn.textContent = muted ? '🔇' : '🔊';
+  }
+  refreshMuteUI();
+  slider.addEventListener('input', ()=>{
+    masterVolume = Math.max(0, Math.min(1, slider.value/100));
+    if(muted && masterVolume>0){ muted = false; refreshMuteUI(); }
+    saveAudioSettings();
+    applyAudioSettings();
+  });
+  muteBtn.addEventListener('click', ()=>{
+    muted = !muted;
+    refreshMuteUI();
+    saveAudioSettings();
+    applyAudioSettings();
+  });
+})();
 
 document.getElementById('startBtn').addEventListener('click', ()=>{
   ensureAudio();
