@@ -45,8 +45,13 @@ madmax/
 ├── audio/                 # 6 trilhas .ogg (opus) EM USO, carregadas via <audio src>
 │   └── title.ogg, boss.ogg, phase1.ogg..phase4.ogg
 ├── assets/                # imagens EM USO, todas referenciadas em index.html
-│   ├── hero_ship.png            # nave do jogador, 20 quadros IRREGULARES (ver abaixo)
-│   ├── space_bg.jpg              # textura de fundo repetível (tileable)
+│   ├── hero_ship.png            # nave do jogador, tira 8 direções (ver seção "Nave do jogador")
+│   ├── space_bg.jpg              # textura de fundo repetível (tileable), pixel-art
+│   ├── planet.png                 # planeta decorativo fixo no mundo (fundo removido)
+│   ├── supportStation.png         # estação de apoio — reenergiza a nave (fundo removido)
+│   ├── debRock1..debRock8.png     # asteroides/destroços novos (variedade, fundo removido)
+│   ├── debDish.png, debScrapPile.png, debBarrel.png, debSolarPanel.png,
+│   │   debCables.png              # sucata solta nova — destroços pequenos (fundo removido)
 │   ├── chest.png                  # baú da cápsula de suprimento (fundo removido)
 │   ├── explosion_sheet.png        # folha 6×1 — explosão padrão (chefe, fallback)
 │   ├── explosion_sheet_obstacle.png # folha 3×2 — explosão de destroços/meteoros
@@ -117,6 +122,13 @@ mesmo se o dano real já teria matado, só não deixa morrer antes do prazo.
 Builds fracos não são afetados (o piso só importa quando o dano real já
 derrubaria o chefe mais rápido que isso).
 
+**Pulso de choque de curto alcance** (`CFG.bossPulseCd`=2.4s, `bossPulseRadius`=150,
+`bossPulseDmg`=16): antes só existia a barragem à distância — ficar colado no
+chefe pra bater era seguro, sem nenhum risco. O pulso fecha essa brecha:
+periodicamente, se a nave estiver dentro do raio quando ele dispara, leva dano.
+Tem telegraph visual (anel branco tracejado que cresce/intensifica, mesmo
+`CFG.telegraphTime` dos outros ataques) — dá tempo de recuar, não é um "gotcha".
+
 ### Nave do jogador
 - Movimento: joystick virtual/teclado, velocidade `CFG.shipSpeed` (modificada
   por `ship.upgrades.speedMul`).
@@ -137,26 +149,21 @@ derrubaria o chefe mais rápido que isso).
 - **Cura por moeda**: cada sucata/moeda coletada cura `CFG.coinHeal` (2 hp) na
   hora — não existe regeneração passiva por tempo nem compra de vida na loja.
   Barra de vida pisca verde no momento da cura (`ship.regenFlashT`).
-- Sprite real: **"Junkyard Titan"** (`assets/hero_ship.png`), grade uniforme
-  **10×5 = 50 quadros** (`SPRITES.heroShip = {frames:50, cols:10, rows:5}`).
-  **Atenção — essa folha só cobre METADE da volta** (nariz de norte a sul
-  passando pelo oeste, ~50 quadros = 180°, não 360°); a outra metade (passando
-  pelo leste) é obtida espelhando horizontalmente o quadro espelhável mais
-  próximo (`ctx.scale(-1,1)`). Isso foi descoberto medindo o centroide dos
-  pixels verdes dos motores em cada um dos 50 quadros (script Python com PIL)
-  — a posição deles não fechava 360° em rotação uniforme, só ~178°. A tabela
-  `HERO_NOSE_ANGLES` (50 valores, ângulo do nariz por quadro, medido
-  empiricamente) e a função `pickHeroFrame(ang)` escolhem o quadro mais
-  próximo (direto ou espelhado, o que for mais perto) — usada só pra essa nave,
-  não pelo `drawDirSprite()` genérico (que continua servindo os capangas/chefe,
-  cujas folhas têm 360° reais em sentido horário). Se trocar esse sprite de
-  novo por um com folha de 360° graus uniforme, **essa lógica toda de
-  `pickHeroFrame`/`HERO_NOSE_ANGLES`/espelhamento vira desnecessária** — nesse
-  caso simplificar chamando `drawDirSprite('heroShip',...)` como os outros
-  sprites fazem. Existe também `assets/hero_ship_pose.png` — uma renderização
-  única (não-grade) da mesma nave, guardada como referência/arte mas não usada
-  na rotação em jogo. Sem sprite carregado, cai num fallback pixel-art gerado
-  proceduralmente.
+- Sprite real: nave-disco (`assets/hero_ship.png`), tira horizontal **8
+  direções** (`SPRITES.heroShip = {frames:8}`) — usa o `drawDirSprite()`
+  genérico, igual todos os outros sprites (capangas/chefe), sem nenhum hack
+  especial. **Isso substitui a "Junkyard Titan" antiga** (folha de 50 quadros
+  cobrindo só 180°, que renderizava como um blob irreconhecível — o
+  `pickHeroFrame`/`HERO_NOSE_ANGLES`/espelhamento que existiam só por causa
+  disso foram removidos). Gerada a partir de `material_bruto/
+  ref_hero_ship_rotation_8dir.jpg` (8 poses em fundo preto puro): recorte por
+  frame + chroma-key (qualquer pixel com `max(r,g,b)<6` vira transparente,
+  com rampa suave até 30 pra não deixar franja) + crop vertical uniforme
+  (mesmo recorte em todos os 8 frames, pra não desalinhar o pivô de rotação
+  entre eles) — script de referência em `material_bruto/` não guardado, mas
+  reproduzível: `PIL.ImageChops.lighter(lighter(r,g),b)` pra achar o canal
+  máximo, `.point()` pra rampa de alpha. Sem sprite carregado, cai num
+  fallback pixel-art gerado proceduralmente.
 
 ### Habilidade: dash com i-frames
 Botão de toque no canto inferior direito (espelha o joystick), também aciona
@@ -271,17 +278,45 @@ volta e pode circular ao redor. Aparece no minimapa (`drawMiniMap()`) como
 um ponto ciano-claro quando dentro do raio visível. Distância do spawn
 (~3440px, ship a 190px/s) dá uns 15-18s de voo pra alcançar.
 
-### Fundo espacial — textura nova
-`assets/space_bg.jpg` trocado por uma textura tileable nova (testada
-ladrilhando 2×2 antes de integrar — sem emenda visível), mais densa em
-nebulosa/estrelas que a antiga. Original movido pra
-`material_bruto/space_bg_old.jpg` (não apagado, só fora de uso).
+### Fundo espacial — textura pixel-art
+`assets/space_bg.jpg` já passou por duas trocas: primeiro uma textura
+"pintada"/fotorrealista (nebulosa roxa/azul), depois substituída de novo pela
+atual, **pixel-art** (mesma linguagem visual dos sprites do jogo, ladrilha
+sem emenda — testado em mosaico 2×2 antes de integrar). A primeira troca
+também teve um problema à parte: era tão parecida em brilho/contraste com a
+textura anterior que **no jogo real parecia que nada tinha mudado** — se for
+trocar de novo, comparar lado a lado em brilho/contraste real, não só na
+paleta de cor. Versões anteriores preservadas em `material_bruto/
+space_bg_old.jpg` (a original) e `material_bruto/space_bg_painterly.jpg` (a
+intermediária).
+
+### Estações de apoio — pontos de respiro
+Diferente do planeta (marco único fixo), as estações (`supportStations[]`)
+**vão surgindo periodicamente pelo mundo**, uma de cada vez, a uma distância
+aleatória da nave (`CFG.stationSpawnMin/MaxDist`, timer
+`CFG.stationSpawnMin/Max`=35–55s) — no máximo `CFG.stationMaxCount` (4)
+simultâneas, a mais antiga some quando esse limite é passado. Sprite:
+`assets/supportStation.png` (base azul/tech, contraste proposital com a
+estética enferrujada do resto — sinaliza "isso é diferente, isso é seguro").
+Dentro de `CFG.stationHealRadius` (110), cura `CFG.stationHealRate` (14
+hp/s) enquanto a nave não estiver com vida cheia; ao chegar no máximo, a
+estação **entra em cooldown** (`CFG.stationCooldown`=40s, anel/sprite ficam
+foscos) — é um respiro tático, não um esconderijo permanente. Anel pulsante
+verde (`#7cff00`) ao redor mostra o raio quando pronta; texto flutuante "⚡
+REENERGIZANDO" aparece enquanto cura. Ponto verde no minimapa (cinza quando
+em cooldown), mesmo padrão do planeta (ciano).
 
 ### Destroços do cenário
-Campo infinito procedural determinístico (`genChunk`, seed por chunk). São
-destrutíveis por **qualquer arma do jogador** (não só capangas do grupo C).
-O estado de destruído **persiste** mesmo saindo e voltando pra área
-(`destroyedObstacleKeys`, resetado só em nova partida).
+Campo infinito procedural determinístico (`genChunk`, seed por chunk),
+`DEBRIS_KEYS` inclui os 7 destroços originais (carro, ônibus, container...)
+mais 13 novos (`debRock1..8` asteroides, `debDish`/`debScrapPile`/`debBarrel`/
+`debSolarPanel`/`debCables` sucata solta) — todos com fundo removido, escala
+individual em `DEBRIS_SCALE`. São destrutíveis por **qualquer arma do
+jogador** (não só capangas do grupo C), mas **bloqueiam tiro inimigo** (bala
+de capanga à distância ou barragem do chefe soma no destroço sem quebrá-lo —
+cobertura tática real, ver bloco `// balas de inimigo pesado / chefe` em
+`update(dt)`). O estado de destruído **persiste** mesmo saindo e voltando
+pra área (`destroyedObstacleKeys`, resetado só em nova partida).
 
 ### Progresso permanente — três camadas, todas com sucata (`meta`, localStorage)
 1. **Arsenal** (`meta.unlocked`) — compra armas.
@@ -295,9 +330,14 @@ O estado de destruído **persiste** mesmo saindo e voltando pra área
    - RECARGA RÁPIDA: −0,6s no cooldown do dash/nível, até 3 níveis (mín. 3,2s).
 
 ### Upgrades **dentro da corrida** (somem só se a nave explodir)
-Orbes flutuantes de dmg/cadência/velocidade/vida máx (sistema separado do
-nível das armas). Ao coletar, o jogo **pausa e mostra 3 opções aleatórias pra
-escolher** (`openUpgradeChoice`, estilo roguelite).
+Orbes flutuantes com 7 tipos em `UPGRADE_TYPES` (dmg, cadência, velocidade,
+casco máx + 3 novos: ímã de sucata `magnetMul`, blindagem `dmgTakenMul`,
+propulsor auxiliar `dashCdMul` — todos multiplicadores em `ship.upgrades`,
+sistema separado do nível das armas). Pool de 7 existe de propósito: com só 4
+tipos e 3 escolhas por vez, praticamente sempre apareciam as mesmas opções
+(sensação de repetição); 7 dá variedade real. Ao coletar, o jogo **pausa e
+mostra 3 opções aleatórias pra escolher** (`openUpgradeChoice`, estilo
+roguelite, `pickUpgradeChoices(3)`).
 
 ### Feedback / juice
 Flash branco no inimigo/chefe ao ser atingido, números de dano flutuantes,
@@ -395,9 +435,10 @@ carregar.
 ## Convenções / decisões de projeto
 
 - **Português** em toda UI, comentários de código e textos do jogo.
-- Sprites de personagens/capangas usam sempre 12 direções (frame 0 = norte,
-  sentido horário) via `dirFrame()`/`drawDirSprite()` — exceto a nave do
-  jogador (folha de 50 quadros cobrindo só 180°+espelhamento, ver seção acima).
+- Sprites de personagens/capangas usam `dirFrame()`/`drawDirSprite()` com
+  frame 0 = norte, sentido horário — 12 direções pros capangas/chefe, 8 pra
+  nave do jogador (nenhuma exceção mais precisa de hack especial, ver seção
+  "Nave do jogador").
 - **Barra de endereço do navegador mobile**: como a página trava scroll
   (`overflow:hidden`, `touch-action:none`) o navegador nunca recebe o gesto
   que normalmente esconde a barra sozinho. `nudgeAddressBar()` força um
@@ -435,19 +476,18 @@ carregar.
 
 ## Pendências conhecidas (não resolvidas ainda)
 
-- **Sprite da nave do jogador está ilegível em jogo** (`assets/hero_ship.png`,
-  a folha de 50 quadros da "Junkyard Titan") — renderiza como um blob
-  irreconhecível, não como nave. Uma segunda tentativa em
-  `material_bruto/MADMAX_100_FRAMES_SHEET-removebg-preview.png` (100
-  quadros) melhora um pouco mas ainda fica borrada (resolução baixa, 50×50px
-  por quadro). Causa provável: as duas tentativas usaram uma folha de
-  rotação contínua gerada por IA em vista heroica (não top-down), diferente
-  do formato que já funciona bem pros capangas (12 direções, top-down,
-  quadro grande). Especificação completa da nave nova (e de todos os outros
-  assets) em [`ESPECIFICACOES_ASSETS.md`](ESPECIFICACOES_ASSETS.md) — usuário
-  está buscando/gerando as imagens novas nesse formato.
+- **Naves extras não integradas**: o usuário mandou mais 3 folhas de
+  referência com ~15 designs de naves no total (`material_bruto/
+  ref_ship_variants_a.jpg`, `_b.jpg`, `_c.jpg` — battleship, buggy speeder,
+  flying fortress, stealth raider, junk crab, e mais) — ainda não decidido
+  se viram novos tipos de inimigo/chefe, ou ficam só como referência futura.
+  Perguntar ao usuário antes de integrar (precisa de stats/balanceamento
+  novos, não é só trocar sprite).
+- `material_bruto/ref_earth_cracked_lore.jpg` (Terra rachada/explodindo,
+  estilo Mad Max) — parece arte de lore/tela de título, não sprite de jogo;
+  sem uso definido ainda.
 - Existem dezenas de outras imagens em `material_bruto/` não usadas (telas de
-  UI estilizadas, bosses alternativos, planetas, sprite de explosão nuclear
+  UI estilizadas, bosses alternativos, sprite de explosão nuclear
   alternativo, variantes de laser/minigun/bazuca, etc.) — disponíveis pra
   iterações futuras, sem uso definido ainda.
 - "Informações de localização" no minimapa foi interpretado como coordenadas
