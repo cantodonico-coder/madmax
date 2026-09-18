@@ -122,12 +122,21 @@ mesmo se o dano real já teria matado, só não deixa morrer antes do prazo.
 Builds fracos não são afetados (o piso só importa quando o dano real já
 derrubaria o chefe mais rápido que isso).
 
-**Pulso de choque de curto alcance** (`CFG.bossPulseCd`=2.4s, `bossPulseRadius`=150,
-`bossPulseDmg`=16): antes só existia a barragem à distância — ficar colado no
-chefe pra bater era seguro, sem nenhum risco. O pulso fecha essa brecha:
-periodicamente, se a nave estiver dentro do raio quando ele dispara, leva dano.
-Tem telegraph visual (anel branco tracejado que cresce/intensifica, mesmo
-`CFG.telegraphTime` dos outros ataques) — dá tempo de recuar, não é um "gotcha".
+**Pulso de choque de curto alcance** (`bossPulseRadius`=150, `bossPulseDmg`=14,
+`bossPulseNearThreshold`=1.3s): antes só existia a barragem à distância —
+ficar colado no chefe pra bater era seguro, sem nenhum risco. A primeira
+versão do pulso usava um timer cego (disparava a cada 2.4s se a nave
+estivesse no raio naquele instante) — **isso fechou a brecha por completo**:
+até quem tava desviando corretamente da barragem à distância também tomava
+pulso sem ter feito nada de errado, o chefe virou impossível de "respirar".
+Trocado por **tempo de proximidade sustentada**: `boss.nearT` só acumula
+enquanto a nave está dentro do raio (zera assim que sai); o pulso só dispara
+se `nearT` passar de `bossPulseNearThreshold` (1.3s), com `pulseLockT` (0.5s)
+travando reativação imediata. Isso deixa hit-and-run (entrar, bater, sair)
+seguro — só pune ficar **parado/camping** colado no chefe. Telegraph (anel
+branco tracejado) só aparece quando a nave está de fato dentro do raio e
+`nearT` já passou de `bossPulseNearThreshold - CFG.telegraphTime` — ou seja,
+só avisa quem já está sob risco real, não todo mundo o tempo todo.
 
 ### Nave do jogador
 - Movimento: joystick virtual/teclado, velocidade `CFG.shipSpeed` (modificada
