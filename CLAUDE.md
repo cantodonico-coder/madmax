@@ -143,35 +143,77 @@ só aparece quando a nave está de fato dentro do raio e `nearT` já passou de
 `pulseNearThreshold - CFG.telegraphTime` — ou seja, só avisa quem já está
 sob risco real, não todo mundo o tempo todo.
 
-### Chefe — rotação de 3 tipos
-`BOSS_TYPES` define 3 chefes com stats/ritmo/visual próprios; `spawnBoss()`
-escolhe `BOSS_TYPES[bossCycleIdx % 3]` e incrementa `bossCycleIdx` — rotação
-**sequencial** (nunca repete até passar pelos 3), resetado em `resetGame()`.
-Cada `boss` guarda uma referência ao seu tipo (`boss.type`) e todo o código
-de combate (barragem, pulso, cor dos efeitos, nome/cor no HUD) lê os campos
-de lá em vez de constantes fixas:
-- **MECHA DE SUCATA** (`spriteImg:null`) — o chefe original, balanceado.
-  Único que usa o desenho vetorial procedural (garras girando + núcleo
-  pulsante) em vez de sprite — mantém o visual/comportamento de antes 1:1.
-- **SENTINELA-X** (`assets/boss_sentinela.png`, ciano) — rápido e frágil
-  (mais velocidade, menos HP, barragem mais rápida mas com menos projéteis
-  por rajada, pulso mais curto/fraco) — luta "ágil", exige desvio constante.
-- **AMÁLGAMA VERMELHA** (`assets/boss_amalgama.png`, laranja/vermelho) —
-  lento e tanque (mais HP, menos velocidade, barragem mais lenta mas com
-  MAIS projéteis — "parede de bala" — e pulso maior/mais forte) — luta
-  "brutamontes", mais tempo de reposicionamento mas menos margem de erro
-  perto dele.
+### Chefe — rotação de 3 tipos, cada um com ataque PRÓPRIO (não só stats diferentes)
+`BOSS_TYPES` define 3 chefes; `spawnBoss()` escolhe `BOSS_TYPES[bossCycleIdx % 3]`
+e incrementa `bossCycleIdx` — rotação **sequencial** (nunca repete até passar
+pelos 3), resetado em `resetGame()`. Cada `boss` guarda uma referência ao seu
+tipo (`boss.type`) e todo o código de combate lê os campos de lá.
+
+**Importante:** a primeira versão dos 3 chefes só variava HP/velocidade/cor —
+todos usavam o MESMO leque de tiros mirado, só com números diferentes. O
+usuário pediu explicitamente pra validar que cada um tem "seu tiro, sua arma
+única, não pode ser a mesma" — por isso `boss.type.attackPattern` agora separa
+de verdade o **padrão de ataque**, não só a intensidade (ver bloco `// chefe`
+em `update(dt)`, e os 3 blocos de telegraph em `draw()`):
+- **`'cone'` — MECHA DE SUCATA** (`spriteImg:null`, único que usa o desenho
+  vetorial procedural — garras girando + núcleo pulsante — em vez de sprite):
+  leque de tiros MIRADO na nave (`barrageCd`/`fanCount`), se espalha mais a
+  cada 2 rajadas. O padrão original, mantido 1:1.
+- **`'charge'` — SENTINELA-X** (`assets/boss_sentinela.png`, ciano, rápido e
+  frágil): **não atira à distância nenhuma vez** — em vez disso, `boss.charge`
+  é uma máquina de estado (`idle` → `telegraph` → `dashing` → `idle`): fica
+  parado telegrafando (anel branco crescendo, `chargeTelegraph`=0.6s), trava
+  o alvo na posição ATUAL da nave (`c.tx/c.ty`, não persegue durante o dash) e
+  dispara em linha reta nessa direção a `chargeSpeed` (820px/s) por
+  `chargeDuration` (0.35s), causando `chargeDmg` (22) por contato UMA vez por
+  investida (`c.hitThisDash`). O movimento de patrulha normal (perseguir
+  `moveTargetX/Y`) fica pausado enquanto `boss.charge.state!=='idle'`
+  (`patrolling` em `update(dt)`) — testado visualmente, o chefe realmente
+  avança até onde a nave estava e acerta.
+- **`'ring'` — AMÁLGAMA VERMELHA** (`assets/boss_amalgama.png`, laranja,
+  lento e tanque): rajada **360° simultânea** (não mira na nave — sai em
+  todas as direções de uma vez), com um offset de rotação aleatório a cada
+  disparo pra o "buraco" entre projéteis não ficar sempre no mesmo ângulo
+  (senão dava pra decorar uma posição seguro fixa). Reaproveita a mesma
+  variável `barrageCd`/`fanCount` do `'cone'`, só muda a distribuição angular
+  dos tiros — testado visualmente, confirma anel completo de projéteis ao
+  redor do chefe.
+Os 3 continuam com o pulso de choque de curto alcance (proximidade
+sustentada, ver acima), cada um com seu próprio raio/dano/limiar.
 Sprites novos são **single-frame** (não são folha de 12 direções como os
 outros sprites) — giram via `ctx.rotate(bossAng+Math.PI/2)` direto no `draw()`
 em vez de trocar de quadro (`drawDirSprite`), assumindo arte com o "nariz"
 pra cima por padrão (mesma convenção de `dirFrame()`). Terceiro candidato
 extraído mas não usado ainda: `material_bruto/boss_bulldog_unused.png`
-(nave blindada amarela) — disponível pra um 4º chefe futuro.
+(nave blindada amarela) — disponível pra um 4º chefe futuro (com seu próprio
+`attackPattern`, se quiser manter a variedade real em vez de reskin).
 **Como testar isto localmente** (não deixar essas mudanças no arquivo real):
 reduzir temporariamente `CFG.bossAt` (spawna rápido), `CFG.bossMinFightTime`
 e o `hp` de cada `BOSS_TYPES` (pra não precisar esperar/matar por muito
-tempo), e `bossCycleIdx` inicial pra pular direto pro tipo que quer ver —
-reverter tudo antes de considerar a mudança pronta.
+tempo), e `bossCycleIdx` inicial (declaração `let` E a linha em `resetGame()`,
+as duas precisam mudar juntas) pra pular direto pro tipo que quer ver —
+reverter tudo antes de considerar a mudança pronta. Pra confirmar visualmente
+um ataque específico (não só "não deu erro"), vale capturar uma rajada de
+screenshots (ex.: a cada 400ms por alguns segundos) em vez de só olhar uma
+vez — o `'charge'` do Sentinela por exemplo só é visível nos ~1s em que ele
+está telegrafando ou avançando.
+
+### Cronômetro do HUD não pode "voltar no tempo" ao derrotar um chefe
+Bug real encontrado pelo usuário: `#waveTimer` (o relógio grande "00:00"→
+"05:00" no topo) mostrava `waveTime` diretamente — mas `waveTime` é
+**rebobinado de propósito** pra `CFG.bossAt-40` ao derrotar o chefe (dá um
+respiro de 40s até o próximo, ver "Loop principal" acima). Isso fazia o
+relógio pular **visualmente pra trás** (de "05:00" pra "04:20") bem na hora
+que o jogador acabava de vencer — mesma classe de bug que já tinha sido
+corrigida uma vez pro número da ONDA (`realElapsedTime` existe por causa
+disso), só que ninguém tinha aplicado a mesma correção nesse timer também.
+Corrigido com `bossCycleStart` (novo global, `let`): marca o valor de
+`waveTime` no início do ciclo atual (0 no `resetGame()`, `waveTime` no
+momento da morte do chefe) — o HUD mostra `waveTime - bossCycleStart` em vez
+de `waveTime` cru, que sempre conta de 0 pra cima dentro do ciclo, nunca
+pula pra trás. Testado: depois de matar um chefe, o relógio zera limpo e
+sobe até o próximo (~00:40 nos ciclos seguintes ao primeiro, já que o
+respiro é bem mais curto que os 5min iniciais — isso é esperado, não é bug).
 
 ### Nave do jogador
 - Movimento: joystick virtual/teclado, velocidade `CFG.shipSpeed` (modificada

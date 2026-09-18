@@ -312,18 +312,27 @@ const BOSS_MINION_CAP = 8;
 // spriteImg null = usa o desenho vetorial procedural original (garras girando + núcleo,
 // ver draw()); os 2 novos têm sprite próprio (single-frame, roda via ctx.rotate — não
 // precisam de folha de 12 direções porque são só usados no chefe, não no jogador).
+// attackPattern diferencia o ataque de cada chefe de verdade (não só números
+// diferentes do mesmo padrão de tiro) — ver bloco "// chefe" em update(dt):
+// 'cone'   — leque de tiros mirado na nave, se espalha mais a cada 2 rajadas
+// 'ring'   — rajada 360° em todas as direções (offset gira a cada disparo,
+//            senão os "buracos" ficam sempre no mesmo lugar)
+// 'charge' — não atira à distância: telegrafa e AVANÇA rápido até a posição
+//            da nave (dano por contato), sem barragem alguma
 const BOSS_TYPES = [
   { id:'mecha', name:'MECHA DE SUCATA', hp:2200, r:52, speed:60, color:'#ff2e97',
+    attackPattern:'cone',
     bulletSpeed:230, fanCountBase:5, fanCountMax:12,
     barrageCdBase:1.6, barrageCdMin:0.7, barrageCdDecay:0.008,
     pulseRadius:150, pulseDmg:14, pulseNearThreshold:1.3, spriteImg:null },
   { id:'sentinela', name:'SENTINELA-X', hp:1800, r:48, speed:88, color:'#00e5ff',
-    bulletSpeed:280, fanCountBase:3, fanCountMax:8,
-    barrageCdBase:1.1, barrageCdMin:0.5, barrageCdDecay:0.007,
-    pulseRadius:125, pulseDmg:12, pulseNearThreshold:1.0, spriteImg:new Image() },
+    attackPattern:'charge',
+    chargeCdBase:2.4, chargeTelegraph:0.6, chargeDuration:0.35, chargeSpeed:820, chargeDmg:22,
+    pulseRadius:110, pulseDmg:10, pulseNearThreshold:1.0, spriteImg:new Image() },
   { id:'amalgama', name:'AMÁLGAMA VERMELHA', hp:2900, r:60, speed:42, color:'#ff5522',
-    bulletSpeed:195, fanCountBase:7, fanCountMax:14,
-    barrageCdBase:1.8, barrageCdMin:0.85, barrageCdDecay:0.009,
+    attackPattern:'ring',
+    bulletSpeed:180, fanCountBase:8, fanCountMax:20,
+    barrageCdBase:2.2, barrageCdMin:1.2, barrageCdDecay:0.009,
     pulseRadius:185, pulseDmg:18, pulseNearThreshold:1.5, spriteImg:new Image() },
 ];
 BOSS_TYPES[1].spriteImg.src = 'assets/boss_sentinela.png';
@@ -768,7 +777,7 @@ function drawMiniMap(){
 
 // ---------- Estado ----------
 let ship, bullets, enemies, bossBullets, obstacles, particles, boss, capsules, beams, upgradeOrbs, floatingTags, coins, damageNumbers;
-let score, scrap, waveTime, spawnTimer, bossSpawned, capsuleTimer, upgradeTimer, curPhaseIdx, burstDone, lastWaveNum, realElapsedTime;
+let score, scrap, waveTime, spawnTimer, bossSpawned, capsuleTimer, upgradeTimer, curPhaseIdx, burstDone, lastWaveNum, realElapsedTime, bossCycleStart;
 let supportStations, stationTimer;
 let waveRevealTimer=0;
 function showWaveReveal(n){
@@ -868,7 +877,7 @@ function resetGame(){
   updateWeaponHud();
   bullets=[]; enemies=[]; bossBullets=[]; particles=[]; boss=null; capsules=[]; beams=[]; upgradeOrbs=[]; floatingTags=[]; coins=[]; damageNumbers=[]; explosionFx=[];
   obstacleChunks={}; destroyedObstacleKeys=new Set(); obstacles=[]; updateObstacleField();
-  score=0; scrap=0; waveTime=0; spawnTimer=1;
+  score=0; scrap=0; waveTime=0; spawnTimer=1; bossCycleStart=0;
   bossSpawned=false; capsuleTimer=rand(CFG.capsuleIntervalMin,CFG.capsuleIntervalMax);
   supportStations=[]; stationTimer=rand(CFG.stationSpawnMin,CFG.stationSpawnMax); usedStationSkins=[];
   bossCycleIdx=0;
@@ -1238,7 +1247,8 @@ function spawnBoss(){
     type,
     x: ship.x, y: ship.y-260, hp:type.hp, maxHp:type.hp, r:type.r,
     moveTargetX:ship.x, moveTargetY:ship.y-260, speed:type.speed, fightTime:0,
-    barrageCd:type.barrageCdBase, fanCount:type.fanCountBase, fanVolleys:0, spawnCd:3, nearT:0, pulseLockT:0
+    barrageCd:type.barrageCdBase||0, fanCount:type.fanCountBase||0, fanVolleys:0, spawnCd:3, nearT:0, pulseLockT:0,
+    charge: type.attackPattern==='charge' ? {state:'idle', t:type.chargeCdBase, tx:0, ty:0} : null
   };
   document.getElementById('bossHpWrap').style.display='block';
   document.getElementById('bossName').textContent = type.name;
@@ -1362,8 +1372,12 @@ function update(dt){
     waveRevealTimer -= dt;
     if(waveRevealTimer<=0) document.getElementById('waveRevealBanner').classList.remove('show');
   }
-  const mm = String(Math.floor(waveTime/60)).padStart(2,'0');
-  const ss = String(Math.floor(waveTime%60)).padStart(2,'0');
+  // mostra tempo decorrido DESTE ciclo (waveTime - bossCycleStart), não waveTime cru — waveTime
+  // é rebobinado de propósito a cada chefe derrotado (respiro de 40s), então exibir ele direto
+  // fazia o relógio "voltar no tempo" (de 05:00 pra 04:20) na hora que o chefe morria
+  const cycleT = waveTime - bossCycleStart;
+  const mm = String(Math.floor(cycleT/60)).padStart(2,'0');
+  const ss = String(Math.floor(cycleT%60)).padStart(2,'0');
   document.getElementById('waveTimer').textContent = mm+':'+ss;
   const bossEtaEl = document.getElementById('bossEtaTag');
   if(bossSpawned){ bossEtaEl.style.display='none'; }
@@ -1697,31 +1711,76 @@ function update(dt){
   if(boss){
     boss.fightTime += dt;
     if(boss.hitFlashT>0) boss.hitFlashT = Math.max(0, boss.hitFlashT-dt);
-    const dtx=boss.moveTargetX-boss.x, dty=boss.moveTargetY-boss.y;
-    const dd=Math.hypot(dtx,dty);
-    if(dd<24){
-      boss.moveTargetX = ship.x + rand(-260,260);
-      boss.moveTargetY = ship.y + rand(-260,260);
-    } else {
-      boss.x += dtx/dd*boss.speed*dt; boss.y += dty/dd*boss.speed*dt;
+    const t = boss.type;
+    // Sentinela (attackPattern:'charge') assume o próprio deslocamento durante a investida
+    // (telegraph->dashing) — o movimento de patrulha normal fica pausado nesses estados.
+    const patrolling = !boss.charge || boss.charge.state==='idle';
+    if(patrolling){
+      const dtx=boss.moveTargetX-boss.x, dty=boss.moveTargetY-boss.y;
+      const dd=Math.hypot(dtx,dty);
+      if(dd<24){
+        boss.moveTargetX = ship.x + rand(-260,260);
+        boss.moveTargetY = ship.y + rand(-260,260);
+      } else {
+        boss.x += dtx/dd*boss.speed*dt; boss.y += dty/dd*boss.speed*dt;
+      }
     }
     boss.spawnCd -= dt;
     if(boss.spawnCd<=0){
       boss.spawnCd=rand(3.5,5);
       if(enemies.length < BOSS_MINION_CAP) spawnEnemyOfType(BOSS_REINFORCE_POOL[Math.floor(Math.random()*BOSS_REINFORCE_POOL.length)]);
     }
-    boss.barrageCd -= dt;
-    if(boss.barrageCd<=0){
-      const t = boss.type;
-      boss.barrageCd = Math.max(t.barrageCdMin, t.barrageCdBase - boss.fightTime*t.barrageCdDecay);
-      const n=boss.fanCount, spread=Math.min(1.2,0.15*(n-1)), step= n>1?spread/(n-1):0;
-      for(let i=0;i<n;i++){
-        const off=-spread/2+step*i;
-        const a=Math.atan2(ship.y-boss.y, ship.x-boss.x)+off;
-        bossBullets.push({x:boss.x,y:boss.y,vx:Math.cos(a)*t.bulletSpeed,vy:Math.sin(a)*t.bulletSpeed,life:2.6,r:6,color:t.color});
+    if(t.attackPattern==='cone'){
+      // leque mirado na nave — se espalha mais a cada 2 rajadas (bullet-hell crescente)
+      boss.barrageCd -= dt;
+      if(boss.barrageCd<=0){
+        boss.barrageCd = Math.max(t.barrageCdMin, t.barrageCdBase - boss.fightTime*t.barrageCdDecay);
+        const n=boss.fanCount, spread=Math.min(1.2,0.15*(n-1)), step= n>1?spread/(n-1):0;
+        for(let i=0;i<n;i++){
+          const off=-spread/2+step*i;
+          const a=Math.atan2(ship.y-boss.y, ship.x-boss.x)+off;
+          bossBullets.push({x:boss.x,y:boss.y,vx:Math.cos(a)*t.bulletSpeed,vy:Math.sin(a)*t.bulletSpeed,life:2.6,r:6,color:t.color});
+        }
+        boss.fanVolleys++;
+        if(boss.fanVolleys>=2){ boss.fanVolleys=0; boss.fanCount=Math.min(t.fanCountMax,boss.fanCount+1); }
       }
-      boss.fanVolleys++;
-      if(boss.fanVolleys>=2){ boss.fanVolleys=0; boss.fanCount=Math.min(t.fanCountMax,boss.fanCount+1); }
+    } else if(t.attackPattern==='ring'){
+      // rajada 360° simultânea (não mira na nave — é omnidirecional) — offset do primeiro
+      // tiro gira a cada disparo pra "buraco" entre projéteis não ficar sempre no mesmo lugar
+      boss.barrageCd -= dt;
+      if(boss.barrageCd<=0){
+        boss.barrageCd = Math.max(t.barrageCdMin, t.barrageCdBase - boss.fightTime*t.barrageCdDecay);
+        const n=boss.fanCount, rotOffset = rand(0,Math.PI*2/n);
+        for(let i=0;i<n;i++){
+          const a = rotOffset + i*(Math.PI*2/n);
+          bossBullets.push({x:boss.x,y:boss.y,vx:Math.cos(a)*t.bulletSpeed,vy:Math.sin(a)*t.bulletSpeed,life:2.8,r:7,color:t.color});
+        }
+        boss.fanVolleys++;
+        if(boss.fanVolleys>=2){ boss.fanVolleys=0; boss.fanCount=Math.min(t.fanCountMax,boss.fanCount+2); }
+      }
+    } else if(t.attackPattern==='charge'){
+      // sem barragem à distância nenhuma — só telegrafa e avança rápido até a posição da
+      // nave, dano por contato durante a investida. Estados: idle -> telegraph -> dashing.
+      const c = boss.charge;
+      if(c.state==='idle'){
+        c.t -= dt;
+        if(c.t<=0){ c.state='telegraph'; c.t=t.chargeTelegraph; c.tx=ship.x; c.ty=ship.y; c.hitThisDash=false; }
+      } else if(c.state==='telegraph'){
+        c.t -= dt;
+        if(c.t<=0){
+          c.state='dashing'; c.t=t.chargeDuration;
+          const ddx=c.tx-boss.x, ddy=c.ty-boss.y, ddd=Math.hypot(ddx,ddy)||1;
+          c.vx=ddx/ddd*t.chargeSpeed; c.vy=ddy/ddd*t.chargeSpeed;
+        }
+      } else if(c.state==='dashing'){
+        c.t -= dt;
+        boss.x += c.vx*dt; boss.y += c.vy*dt;
+        if(!c.hitThisDash && Math.hypot(ship.x-boss.x,ship.y-boss.y) < boss.r+CFG.shipHitRadius){
+          damageShip(t.chargeDmg, 'boss-charge'); c.hitThisDash=true;
+          shake(8,0.25);
+        }
+        if(c.t<=0){ c.state='idle'; c.t=t.chargeCdBase; boss.moveTargetX=boss.x; boss.moveTargetY=boss.y; }
+      }
     }
     // pulso de choque de curto alcance — só pune ficar COLADO nele por um tempo sustentado
     // (boss.type.pulseNearThreshold), não é mais um timer cego que também pegava quem tava
@@ -1752,6 +1811,7 @@ function update(dt){
       playExplosion(true);
       score += 500; scrap += 40;
       boss=null; bossSpawned=false; waveTime = CFG.bossAt-40; // dá um respiro antes do próximo ciclo
+      bossCycleStart = waveTime; // marca o início do novo ciclo pro #waveTimer não "voltar no tempo" (ver update do HUD)
       curPhaseIdx = WAVE_PHASES.indexOf(getPhase(waveTime));
       playMusic(nextGameplayTrack());
       document.getElementById('bossHpWrap').style.display='none';
@@ -2126,12 +2186,27 @@ function draw(){
       ctx.beginPath(); ctx.arc(0,0,boss.r*0.85,0,Math.PI*2); ctx.fill();
       ctx.globalAlpha=1;
     }
-    if(boss.barrageCd<=CFG.telegraphTime){
+    if((boss.type.attackPattern==='cone'||boss.type.attackPattern==='ring') && boss.barrageCd<=CFG.telegraphTime){
       const ft = 1 - Math.max(0,boss.barrageCd)/CFG.telegraphTime;
       ctx.globalAlpha = 0.3 + ft*0.55;
       ctx.strokeStyle = bc; ctx.lineWidth = 3+ft*3;
       ctx.shadowColor = bc; ctx.shadowBlur = 16*ft;
       ctx.beginPath(); ctx.arc(0,0, boss.r*(1.2-ft*0.15), 0, Math.PI*2); ctx.stroke();
+      ctx.shadowBlur=0; ctx.globalAlpha=1;
+    }
+    // telegraph da investida (Sentinela) — cresce durante 'telegraph', vira uma trilha
+    // curta durante 'dashing' (não precisa mirar: já sabemos a direção real do impulso)
+    if(boss.charge && boss.charge.state==='telegraph'){
+      const ft = 1 - Math.max(0,boss.charge.t)/boss.type.chargeTelegraph;
+      ctx.globalAlpha = 0.25 + ft*0.6;
+      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2+ft*4;
+      ctx.shadowColor = bc; ctx.shadowBlur = 18*ft;
+      ctx.beginPath(); ctx.arc(0,0, boss.r*(1+ft*0.5), 0, Math.PI*2); ctx.stroke();
+      ctx.shadowBlur=0; ctx.globalAlpha=1;
+    }
+    if(boss.charge && boss.charge.state==='dashing'){
+      ctx.globalAlpha=.5; ctx.shadowColor=bc; ctx.shadowBlur=22;
+      ctx.beginPath(); ctx.arc(0,0, boss.r*1.15, 0, Math.PI*2); ctx.stroke();
       ctx.shadowBlur=0; ctx.globalAlpha=1;
     }
     // telegraph do pulso — só aparece enquanto a nave está de fato dentro do raio E
