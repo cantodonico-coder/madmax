@@ -266,6 +266,10 @@ const CFG = {
   shipTurnRate: 40,      // rad/s — curva bem rápida (~0,08s pra virar 90°), quase instantânea mas ainda visível
   shipHitRadius: 10,     // hitbox REAL pra levar dano de inimigo/bala é menor que o sprite (CFG.shipRadius) — "escapar por pouco"
   coinHeal: 2,           // vida curada por moeda/sucata coletada (substitui regen automática)
+  coinMedChance: 0.10,   // chance de uma moeda sair "média" (valor maior, visual levemente maior)
+  coinMedValue: 3,
+  coinBigChance: 0.02,   // chance de uma moeda sair "grande" (rara, recompensa de valor variável — reforço de razão variável)
+  coinBigValue: 8,
   maxWeaponLevel: 10,     // nível máx de cada arma equipada; cada nível soma dano e (pra armas de projétil) mais tiros
   bossMinFightTime: 30,   // segundos mínimos de luta contra o chefe, mesmo com builds muito fortes
 };
@@ -396,6 +400,14 @@ const SPACE_BG = new Image();
 SPACE_BG.src = 'assets/space_bg.jpg';
 let spaceBgPattern = null;
 SPACE_BG.onload = ()=>{ spaceBgPattern = ctx.createPattern(SPACE_BG, 'repeat'); };
+
+// ---------- Planeta — marco fixo no mundo (não é tileable, fica num ponto só) ----------
+// Jogador se afasta, volta e pode dar a volta nele — é só decorativo (sem colisão),
+// desenhado em coordenada de mundo real via worldToScreen, não acompanha a câmera como o fundo.
+const PLANET_IMG = new Image();
+PLANET_IMG.src = 'assets/planet.png';
+const PLANET_POS = {x: 2800, y: -2000};
+const PLANET_DIAM = 640;
 
 // ---------- Explosões animadas (folhas de quadros) ----------
 const EXPLOSION_SHEET = new Image();
@@ -631,6 +643,13 @@ function drawMiniMap(){
   // alcance de tiro da nave, referência
   mmCtx.strokeStyle='rgba(0,229,255,.18)'; mmCtx.lineWidth=1;
   mmCtx.beginPath(); mmCtx.arc(cx,cy,CFG.fireRange*scale,0,Math.PI*2); mmCtx.stroke();
+  // planeta (marco fixo do mundo) — só aparece no minimapa quando dentro do raio
+  { const p = toMap(PLANET_POS.x, PLANET_POS.y);
+    if(p.x>=0&&p.x<=cw&&p.y>=0&&p.y<=ch){
+      mmCtx.fillStyle='rgba(120,200,220,.9)'; mmCtx.shadowColor='#78c8dc'; mmCtx.shadowBlur=6;
+      mmCtx.beginPath(); mmCtx.arc(p.x,p.y,5,0,Math.PI*2); mmCtx.fill(); mmCtx.shadowBlur=0;
+    }
+  }
   // cápsulas de suprimento (prêmios)
   capsules.forEach(c=>{
     const p = toMap(c.x,c.y); if(p.x<0||p.x>cw||p.y<0||p.y>ch) return;
@@ -975,6 +994,20 @@ function playCoin(){
     osc.start(t0+i*0.045); osc.stop(t0+i*0.045+0.18);
   });
 }
+// som distinto pro drop raro de sucata (tier "big") — arpejo de 3 notas, mais rico que playCoin()
+function playCoinBig(){
+  const ac = ensureAudio(); if(!ac) return;
+  const t0 = ac.currentTime;
+  [660, 990, 1320].forEach((f,i)=>{
+    const osc = ac.createOscillator(); const gain = ac.createGain();
+    osc.type='square'; osc.frequency.setValueAtTime(f, t0+i*0.06);
+    gain.gain.setValueAtTime(0.001, t0+i*0.06);
+    gain.gain.exponentialRampToValueAtTime(0.18, t0+i*0.06+0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0+i*0.06+0.22);
+    osc.connect(gain); gain.connect(sfxMasterGain);
+    osc.start(t0+i*0.06); osc.stop(t0+i*0.06+0.24);
+  });
+}
 function playImpact(big){
   const ac = ensureAudio(); if(!ac) return;
   const t0 = ac.currentTime;
@@ -1075,7 +1108,11 @@ function spawnEnemy(){
   spawnEnemyOfType(pool[Math.floor(Math.random()*pool.length)]);
 }
 function dropCoin(x,y){
-  coins.push({x,y,life:9,t:0,value:1});
+  const roll = Math.random();
+  let value=1, tier='normal';
+  if(roll < CFG.coinBigChance){ value=CFG.coinBigValue; tier='big'; }
+  else if(roll < CFG.coinBigChance+CFG.coinMedChance){ value=CFG.coinMedValue; tier='med'; }
+  coins.push({x,y,life:9,t:0,value,tier});
 }
 // feedback de impacto na morte de um capanga — médio sempre, extra (hit-stop) se for do Grupo C (pesado)
 function enemyDeathFx(e){
@@ -1360,8 +1397,15 @@ function update(dt){
   });
   coins = coins.filter(c=>{
     if(Math.hypot(ship.x-c.x, ship.y-c.y) < CFG.shipRadius+10){
-      scrap += c.value; vibrate(10); playCoin();
-      spawnParticles(c.x,c.y,'#ffd23f',6,120);
+      scrap += c.value;
+      if(c.tier==='big'){
+        vibrate(30); playCoinBig();
+        spawnParticles(c.x,c.y,'#00e5ff',18,220);
+        floatingTags.push({x:c.x,y:c.y-24,text:'+'+c.value+' SUCATA!',color:'#00e5ff',life:1.2});
+      } else {
+        vibrate(c.tier==='med'?16:10); playCoin();
+        spawnParticles(c.x,c.y,'#ffd23f',c.tier==='med'?10:6,120);
+      }
       if(ship.hp<shipMaxHp()){
         ship.hp = Math.min(shipMaxHp(), ship.hp + CFG.coinHeal);
         ship.regenFlashT = 0.35;
@@ -1669,6 +1713,15 @@ function draw(){
   for(let x=-offX; x<W; x+=tile){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
   for(let y=-offY; y<H; y+=tile){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
 
+  // planeta — marco fixo no mundo, só decorativo, atrás de tudo que é jogável
+  if(PLANET_IMG.complete && PLANET_IMG.naturalWidth){
+    const pp = worldToScreen(PLANET_POS.x, PLANET_POS.y, camX, camY);
+    const margin = PLANET_DIAM*0.6;
+    if(pp.x>-margin && pp.x<W+margin && pp.y>-margin && pp.y<H+margin){
+      ctx.drawImage(PLANET_IMG, pp.x-PLANET_DIAM/2, pp.y-PLANET_DIAM/2, PLANET_DIAM, PLANET_DIAM);
+    }
+  }
+
   // obstáculos — destroços reais (sucata, carro, ônibus, geladeira, etc.), com fallback vetorial
   obstacles.forEach(o=>{
     const p = worldToScreen(o.x,o.y,camX,camY);
@@ -1735,12 +1788,15 @@ function draw(){
     const s = worldToScreen(c.x,c.y,camX,camY);
     const scaleX = Math.abs(Math.cos(c.t*3.2)); // giro "de moeda" no eixo vertical
     const fade = c.life<2 ? Math.max(0,c.life/2) : 1;
+    const isBig = c.tier==='big', isMed = c.tier==='med';
+    const cRad = isBig?15:(isMed?11:9);
+    const cCol = isBig?'#00e5ff':'#ffd23f';
     ctx.save(); ctx.translate(s.x,s.y); ctx.globalAlpha=fade;
     ctx.scale(Math.max(0.15,scaleX),1);
-    ctx.fillStyle='#ffd23f'; ctx.strokeStyle='#7a5a00'; ctx.lineWidth=1.5;
-    ctx.shadowColor='#ffd23f'; ctx.shadowBlur=12;
-    ctx.beginPath(); ctx.arc(0,0,9,0,Math.PI*2); ctx.fill(); ctx.stroke();
-    ctx.fillStyle='#7a5a00'; ctx.font='bold 10px Courier New'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillStyle=cCol; ctx.strokeStyle=isBig?'#00707a':'#7a5a00'; ctx.lineWidth=1.5;
+    ctx.shadowColor=cCol; ctx.shadowBlur=isBig?18:12;
+    ctx.beginPath(); ctx.arc(0,0,cRad,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle=isBig?'#00323a':'#7a5a00'; ctx.font='bold '+(isBig?12:10)+'px Courier New'; ctx.textAlign='center'; ctx.textBaseline='middle';
     ctx.fillText('$',0,0.5);
     ctx.shadowBlur=0; ctx.globalAlpha=1; ctx.restore();
   });

@@ -262,6 +262,21 @@ quadro conforme o tempo. Não é chamado pra cada inimigo comum morrendo
   tiro, senão fica indistinguível de moeda no chão (t4 já foi corrigido pra
   `#ff5fa3`; ao adicionar um tipo `ranged` novo, checar isso).
 
+### Planeta — marco fixo no mundo
+`PLANET_POS = {x:2800, y:-2000}`, `PLANET_DIAM = 640` — imagem única
+(`assets/planet.png`, fundo removido), desenhada em `draw()` via
+`worldToScreen()` como qualquer objeto de mundo (não é tileable como o
+fundo, é um ponto fixo). Sem colisão, só decorativo — jogador se afasta,
+volta e pode circular ao redor. Aparece no minimapa (`drawMiniMap()`) como
+um ponto ciano-claro quando dentro do raio visível. Distância do spawn
+(~3440px, ship a 190px/s) dá uns 15-18s de voo pra alcançar.
+
+### Fundo espacial — textura nova
+`assets/space_bg.jpg` trocado por uma textura tileable nova (testada
+ladrilhando 2×2 antes de integrar — sem emenda visível), mais densa em
+nebulosa/estrelas que a antiga. Original movido pra
+`material_bruto/space_bg_old.jpg` (não apagado, só fora de uso).
+
 ### Destroços do cenário
 Campo infinito procedural determinístico (`genChunk`, seed por chunk). São
 destrutíveis por **qualquer arma do jogador** (não só capangas do grupo C).
@@ -288,6 +303,16 @@ escolher** (`openUpgradeChoice`, estilo roguelite).
 Flash branco no inimigo/chefe ao ser atingido, números de dano flutuantes,
 som de acerto com variação de tom (`playHitTick`), variação de pitch em
 explosões, explosões animadas (ver acima).
+
+**Drop de sucata com valor variável** (`dropCoin()`): em vez de toda moeda
+valer sempre 1, agora sorteia raridade a cada drop — 88% normal (valor 1,
+visual/som padrão), 10% "média" (`CFG.coinMedChance`/`coinMedValue`, um
+pouco maior), 2% "grande" (`CFG.coinBigChance`/`coinBigValue`=8, cor ciano
+`#00e5ff` em vez do amarelo padrão, raio maior, `playCoinBig()` — arpejo de
+3 notas em vez do de 2 — e texto flutuante "+N SUCATA!"). Isso é reforço de
+razão variável (Skinner): recompensa de valor imprevisível engaja mais do
+que a mesma recompensa fixa repetida. Tier fica salvo no próprio objeto da
+moeda (`coin.tier`), lido tanto no desenho (`draw()`) quanto na coleta.
 
 **Impacto de colisão** (`damageShip()`, gatilho compartilhado por bater em
 destroço OU em capanga): agora sempre soca som (`playImpact()`, mais grave se
@@ -410,6 +435,17 @@ carregar.
 
 ## Pendências conhecidas (não resolvidas ainda)
 
+- **Sprite da nave do jogador está ilegível em jogo** (`assets/hero_ship.png`,
+  a folha de 50 quadros da "Junkyard Titan") — renderiza como um blob
+  irreconhecível, não como nave. Uma segunda tentativa em
+  `material_bruto/MADMAX_100_FRAMES_SHEET-removebg-preview.png` (100
+  quadros) melhora um pouco mas ainda fica borrada (resolução baixa, 50×50px
+  por quadro). Causa provável: as duas tentativas usaram uma folha de
+  rotação contínua gerada por IA em vista heroica (não top-down), diferente
+  do formato que já funciona bem pros capangas (12 direções, top-down,
+  quadro grande). Especificação completa da nave nova (e de todos os outros
+  assets) em [`ESPECIFICACOES_ASSETS.md`](ESPECIFICACOES_ASSETS.md) — usuário
+  está buscando/gerando as imagens novas nesse formato.
 - Existem dezenas de outras imagens em `material_bruto/` não usadas (telas de
   UI estilizadas, bosses alternativos, planetas, sprite de explosão nuclear
   alternativo, variantes de laser/minigun/bazuca, etc.) — disponíveis pra
