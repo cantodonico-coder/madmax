@@ -349,6 +349,11 @@ const WEAPONS = {
   granada:  {name:'GRANADA ESPACIAL',  basic:false, rate:1.0, dmg:55, ammo:10, cost:80,  type:'explosive',radius:70, color:'#ff7a1e', aimMode:'random'},
   rkl88:    {name:'RKL-88 PESADO',     basic:false, rate:0.55,dmg:95, ammo:6,  cost:110, type:'explosive',radius:55, color:'#c69a3f', aimMode:'rank', aimRank:4},
   tnt:      {name:'TNT DEMOLIDOR',     basic:false, rate:0.8, dmg:30, ammo:12, cost:70,  type:'explosive',radius:110,color:'#ffcf3f', aimMode:'random'},
+  // arma dedicada contra chefe — só mira nele (aimMode:'bossOnly', fica ociosa fora da luta
+  // de chefe), feixe instantâneo (type:'pierce') em vez de projétil com tempo de viagem, pra
+  // sempre acertar mesmo o chefe se movendo. Pedido do usuário: "precisamos de uma arma que
+  // ajude [contra chefes]".
+  arpao:    {name:'ARPÃO DE ABATE',    basic:false, rate:0.7, dmg:75, ammo:10, cost:85,  type:'pierce',   color:'#ff4444', aimMode:'bossOnly'},
 };
 const BASIC_WEAPON_IDS = Object.keys(WEAPONS).filter(id=>WEAPONS[id].basic && id!=='pea');
 
@@ -364,9 +369,24 @@ const WEAPON_ICON_B64 = {
   iconRkl88: 'assets/icon_rkl88.png',
   iconTnt: 'assets/icon_tnt.png',
 };
+// ícone do arpão — gerado por canvas em vez de arquivo externo (sem arte pronta pra essa
+// arma nova ainda; mesmo princípio do fallback pixel-art da nave, ver heroPixCanvas)
+(function buildArpaoIcon(){
+  const c = document.createElement('canvas'); c.width=64; c.height=64;
+  const ic = c.getContext('2d');
+  ic.translate(32,32);
+  ic.fillStyle='#2c2f34'; ic.strokeStyle='#ff4444'; ic.lineWidth=3;
+  ic.beginPath(); ic.moveTo(0,-26); ic.lineTo(11,4); ic.lineTo(0,-6); ic.lineTo(-11,4); ic.closePath();
+  ic.fill(); ic.stroke();
+  ic.fillStyle='#ff4444'; ic.strokeStyle='#8a1616'; ic.lineWidth=2;
+  ic.fillRect(-4,4,8,22); ic.strokeRect(-4,4,8,22);
+  ic.strokeStyle='#ff8080'; ic.lineWidth=2;
+  ic.beginPath(); ic.moveTo(-11,4); ic.lineTo(-18,14); ic.moveTo(11,4); ic.lineTo(18,14); ic.stroke();
+  WEAPON_ICON_B64.iconArpao = c.toDataURL('image/png');
+})();
 const WEAPON_ICON_IMG = {};
 Object.keys(WEAPON_ICON_B64).forEach(k=>{ const im=new Image(); im.src=WEAPON_ICON_B64[k]; WEAPON_ICON_IMG[k]=im; });
-const WEAPON_ICON_BY_ID = { pea:'iconPea', leque:'iconLeque', metralha:'iconMetralha', laser:'iconLaser', granada:'iconGranada', missil:'iconMissil', rkl88:'iconRkl88', tnt:'iconTnt' };
+const WEAPON_ICON_BY_ID = { pea:'iconPea', leque:'iconLeque', metralha:'iconMetralha', laser:'iconLaser', granada:'iconGranada', missil:'iconMissil', rkl88:'iconRkl88', tnt:'iconTnt', arpao:'iconArpao' };
 
 // ---------- Sprites de personagens (spritesheets 12 direções, pré-renderizadas) ----------
 const SPRITES = {
@@ -1206,6 +1226,7 @@ function computeWeaponAim(weaponId){
   if(w.aimMode==='retreat') return dirAimPoint(moveAng+Math.PI);
   if(w.aimMode==='random') return { x: ship.x+Math.cos(rand(0,Math.PI*2))*rand(80,CFG.fireRange), y: ship.y+Math.sin(rand(0,Math.PI*2))*rand(80,CFG.fireRange) };
   if(w.aimMode==='heavy') return heaviestGroupCEnemy();
+  if(w.aimMode==='bossOnly') return boss ? {x:boss.x, y:boss.y} : null;
   if(w.aimMode==='rank') return nthNearestEnemyOrBoss(ship.x,ship.y,w.aimRank||0);
   return nearestEnemyOrBoss(ship.x,ship.y);
 }
@@ -1518,7 +1539,7 @@ function update(dt){
       if(boss && Math.hypot(ship.x-boss.x,ship.y-boss.y) < orbitRadius+boss.r){ boss.hp -= dmgTick; boss.hitFlashT=0.09; }
       continue;
     }
-    const needsRealTarget = !w.aimMode || w.aimMode==='nearest' || w.aimMode==='heavy' || w.aimMode==='rank';
+    const needsRealTarget = !w.aimMode || w.aimMode==='nearest' || w.aimMode==='heavy' || w.aimMode==='rank' || w.aimMode==='bossOnly';
     if(w.burst){
       if(wState.burstShotsLeft>0){
         wState.burstCd -= dt;

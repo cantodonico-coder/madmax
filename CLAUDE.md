@@ -219,9 +219,10 @@ com barra de espaço. Desloca a nave ~150px na direção do movimento atual,
 Reformulado: antes, pegar uma cápsula TROCAVA a arma ativa com munição finita.
 Agora **todas as armas equipadas disparam ao mesmo tempo, pra sempre, sem
 acabar munição**:
-- 8 armas no total: 3 básicas sempre equipadas (pea "CANHÃO SUCATA", leque
-  "LEQUE TRIPLO", metralha "METRALHA") + 5 compráveis com sucata (missil,
-  laser, granada, rkl88 "RKL-88 PESADO", tnt "TNT DEMOLIDOR").
+- 9 armas no total: 3 básicas sempre equipadas (pea "CANHÃO SUCATA", leque
+  "LEQUE TRIPLO", metralha "METRALHA") + 6 compráveis com sucata (missil,
+  laser, granada, rkl88 "RKL-88 PESADO", tnt "TNT DEMOLIDOR", arpao "ARPÃO
+  DE ABATE" — ver `aimMode:'bossOnly'` abaixo).
 - **Loadout**: na aba ARSENAL da loja, cada arma comprada tem um botão
   EQUIPAR/✔ EQUIPADA que alterna se ela entra na partida (`meta.loadout`,
   persistido). Comprar uma arma já equipa ela automaticamente.
@@ -242,8 +243,14 @@ acabar munição**:
   de granada/rkl88/tnt. "Nada fica na frente."
 - HUD (`#weaponHud`) mostra um "chip" pequeno (ícone + nível) pra cada arma
   equipada com nível>0, gerado por `updateWeaponHud()`.
-- Todas as 8 armas têm ícone (`WEAPON_ICON_BY_ID` → `assets/icon_*.png`, fundo
-  removido, usados também na cápsula e no chip do HUD).
+- Todas as 9 armas têm ícone (`WEAPON_ICON_BY_ID`, usados também na cápsula e
+  no chip do HUD) — 8 são `assets/icon_*.png` (fundo removido); o arpão
+  (`iconArpao`) é a única exceção, **gerado por canvas em vez de arquivo**
+  (`buildArpaoIcon()`, mesmo princípio do fallback pixel-art da nave,
+  `.toDataURL()` vira uma entrada normal em `WEAPON_ICON_B64`) porque
+  não tinha arte pronta pra essa arma — se aparecer uma imagem de verdade
+  pra ela, trocar `iconArpao` por um `assets/icon_arpao.png` e remover a
+  função de geração procedural.
 - **Mira própria por arma** (`WEAPONS[id].aimMode`, resolvido em
   `computeWeaponAim()`) — cada arma tem uma "assinatura visual" diferente em
   vez de todas mirarem no inimigo mais próximo:
@@ -260,6 +267,13 @@ acabar munição**:
   - `heavy` — míssil: persegue o capanga vivo de maior HP do Grupo C
     (`heaviestGroupCEnemy()`), cai pro inimigo mais próximo se não houver
     nenhum Grupo C na tela.
+  - `bossOnly` — arpão: só mira no chefe (`boss ? {x:boss.x,y:boss.y} : null`),
+    fica **ociosa** (não dispara, sem erro) o resto do jogo quando não há
+    chefe na tela. Pedido do usuário depois de achar os chefes difíceis
+    demais ("precisamos de uma arma que ajude [contra chefes]") — tipo
+    `pierce` (feixe instantâneo) em vez de projétil com tempo de viagem, pra
+    sempre acertar mesmo com o chefe se movendo. Adicionado em `needsRealTarget`
+    igual `rank`/`heavy`, pra respeitar `CFG.fireRange`.
   - `moving`/`retreat` (atira na direção que anda / oposta) ainda existem no
     código (`computeWeaponAim()`, `dirAimPoint()`) mas nenhuma arma usa mais —
     ficaram disponíveis caso queira uma arma nova com esse comportamento.
