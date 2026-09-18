@@ -48,10 +48,14 @@ madmax/
 │   ├── hero_ship.png            # nave do jogador, tira 8 direções (ver seção "Nave do jogador")
 │   ├── space_bg.jpg              # textura de fundo repetível (tileable), pixel-art
 │   ├── planet.png                 # planeta decorativo fixo no mundo (fundo removido)
-│   ├── supportStation.png         # estação de apoio — reenergiza a nave (fundo removido)
+│   ├── stationTech.png, stationDepot.png, stationRubble.png, stationReactor.png,
+│   │   stationRelay.png           # 5 visuais de estação de apoio (fundo removido, ver STATION_SKINS)
+│   ├── boss_sentinela.png, boss_amalgama.png  # sprites dos chefes 2 e 3 (fundo removido, ver BOSS_TYPES)
 │   ├── debRock1..debRock8.png     # asteroides/destroços novos (variedade, fundo removido)
-│   ├── debDish.png, debScrapPile.png, debBarrel.png, debSolarPanel.png,
-│   │   debCables.png              # sucata solta nova — destroços pequenos (fundo removido)
+│   ├── debDish.png, debScrapPile.png, debBarrel.png, debSolarPanel.png, debCables.png,
+│   │   debCarWreck.png, debMetalSheet.png, debTireStack.png, debBarrelOrange.png,
+│   │   debBarrelGreen.png, debJunkPile2.png, debFence.png, debDish2.png
+│   │                              # sucata solta nova — destroços pequenos (fundo removido)
 │   ├── chest.png                  # baú da cápsula de suprimento (fundo removido)
 │   ├── explosion_sheet.png        # folha 6×1 — explosão padrão (chefe, fallback)
 │   ├── explosion_sheet_obstacle.png # folha 3×2 — explosão de destroços/meteoros
@@ -114,7 +118,7 @@ onda (`#waveRevealBanner`/`showWaveReveal()`, dispara a cada 25s de
 "anda pra trás" visualmente depois de vencer o chefe (bug já corrigido uma vez).
 
 **Duração mínima do combate do chefe:** como as armas agora acumulam e sobem
-de nível sem limite, um build forte podia matar o chefe (2200 HP fixos) quase
+de nível sem limite, um build forte podia matar o chefe quase
 instantaneamente. `CFG.bossMinFightTime` (30s) garante um piso de HP que
 decai linearmente até zero ao longo desse tempo (`boss.hp = Math.max(boss.hp,
 hpFloor)` em `update(dt)`, bloco `// chefe`) — a barra ainda drena visualmente
@@ -122,21 +126,52 @@ mesmo se o dano real já teria matado, só não deixa morrer antes do prazo.
 Builds fracos não são afetados (o piso só importa quando o dano real já
 derrubaria o chefe mais rápido que isso).
 
-**Pulso de choque de curto alcance** (`bossPulseRadius`=150, `bossPulseDmg`=14,
-`bossPulseNearThreshold`=1.3s): antes só existia a barragem à distância —
-ficar colado no chefe pra bater era seguro, sem nenhum risco. A primeira
-versão do pulso usava um timer cego (disparava a cada 2.4s se a nave
-estivesse no raio naquele instante) — **isso fechou a brecha por completo**:
-até quem tava desviando corretamente da barragem à distância também tomava
-pulso sem ter feito nada de errado, o chefe virou impossível de "respirar".
-Trocado por **tempo de proximidade sustentada**: `boss.nearT` só acumula
-enquanto a nave está dentro do raio (zera assim que sai); o pulso só dispara
-se `nearT` passar de `bossPulseNearThreshold` (1.3s), com `pulseLockT` (0.5s)
-travando reativação imediata. Isso deixa hit-and-run (entrar, bater, sair)
-seguro — só pune ficar **parado/camping** colado no chefe. Telegraph (anel
-branco tracejado) só aparece quando a nave está de fato dentro do raio e
-`nearT` já passou de `bossPulseNearThreshold - CFG.telegraphTime` — ou seja,
-só avisa quem já está sob risco real, não todo mundo o tempo todo.
+**Pulso de choque de curto alcance** (`boss.type.pulseRadius/pulseDmg/
+pulseNearThreshold`, valores por tipo de chefe — ver seção "Chefe — rotação
+de 3 tipos" abaixo): antes só existia a barragem à distância — ficar colado
+no chefe pra bater era seguro, sem nenhum risco. A primeira versão do pulso
+usava um timer cego (disparava a cada 2.4s se a nave estivesse no raio
+naquele instante) — **isso fechou a brecha por completo**: até quem tava
+desviando corretamente da barragem à distância também tomava pulso sem ter
+feito nada de errado, o chefe virou impossível de "respirar". Trocado por
+**tempo de proximidade sustentada**: `boss.nearT` só acumula enquanto a nave
+está dentro do raio (zera assim que sai); o pulso só dispara se `nearT`
+passar do limiar do tipo, com `pulseLockT` (0.5s) travando reativação
+imediata. Isso deixa hit-and-run (entrar, bater, sair) seguro — só pune
+ficar **parado/camping** colado no chefe. Telegraph (anel branco tracejado)
+só aparece quando a nave está de fato dentro do raio e `nearT` já passou de
+`pulseNearThreshold - CFG.telegraphTime` — ou seja, só avisa quem já está
+sob risco real, não todo mundo o tempo todo.
+
+### Chefe — rotação de 3 tipos
+`BOSS_TYPES` define 3 chefes com stats/ritmo/visual próprios; `spawnBoss()`
+escolhe `BOSS_TYPES[bossCycleIdx % 3]` e incrementa `bossCycleIdx` — rotação
+**sequencial** (nunca repete até passar pelos 3), resetado em `resetGame()`.
+Cada `boss` guarda uma referência ao seu tipo (`boss.type`) e todo o código
+de combate (barragem, pulso, cor dos efeitos, nome/cor no HUD) lê os campos
+de lá em vez de constantes fixas:
+- **MECHA DE SUCATA** (`spriteImg:null`) — o chefe original, balanceado.
+  Único que usa o desenho vetorial procedural (garras girando + núcleo
+  pulsante) em vez de sprite — mantém o visual/comportamento de antes 1:1.
+- **SENTINELA-X** (`assets/boss_sentinela.png`, ciano) — rápido e frágil
+  (mais velocidade, menos HP, barragem mais rápida mas com menos projéteis
+  por rajada, pulso mais curto/fraco) — luta "ágil", exige desvio constante.
+- **AMÁLGAMA VERMELHA** (`assets/boss_amalgama.png`, laranja/vermelho) —
+  lento e tanque (mais HP, menos velocidade, barragem mais lenta mas com
+  MAIS projéteis — "parede de bala" — e pulso maior/mais forte) — luta
+  "brutamontes", mais tempo de reposicionamento mas menos margem de erro
+  perto dele.
+Sprites novos são **single-frame** (não são folha de 12 direções como os
+outros sprites) — giram via `ctx.rotate(bossAng+Math.PI/2)` direto no `draw()`
+em vez de trocar de quadro (`drawDirSprite`), assumindo arte com o "nariz"
+pra cima por padrão (mesma convenção de `dirFrame()`). Terceiro candidato
+extraído mas não usado ainda: `material_bruto/boss_bulldog_unused.png`
+(nave blindada amarela) — disponível pra um 4º chefe futuro.
+**Como testar isto localmente** (não deixar essas mudanças no arquivo real):
+reduzir temporariamente `CFG.bossAt` (spawna rápido), `CFG.bossMinFightTime`
+e o `hp` de cada `BOSS_TYPES` (pra não precisar esperar/matar por muito
+tempo), e `bossCycleIdx` inicial pra pular direto pro tipo que quer ver —
+reverter tudo antes de considerar a mudança pronta.
 
 ### Nave do jogador
 - Movimento: joystick virtual/teclado, velocidade `CFG.shipSpeed` (modificada
@@ -304,9 +339,14 @@ Diferente do planeta (marco único fixo), as estações (`supportStations[]`)
 **vão surgindo periodicamente pelo mundo**, uma de cada vez, a uma distância
 aleatória da nave (`CFG.stationSpawnMin/MaxDist`, timer
 `CFG.stationSpawnMin/Max`=35–55s) — no máximo `CFG.stationMaxCount` (4)
-simultâneas, a mais antiga some quando esse limite é passado. Sprite:
-`assets/supportStation.png` (base azul/tech, contraste proposital com a
-estética enferrujada do resto — sinaliza "isso é diferente, isso é seguro").
+simultâneas, a mais antiga some quando esse limite é passado. **5 visuais**
+(`STATION_SKINS`, `assets/stationTech/Depot/Rubble/Reactor/Relay.png`, todos
+contraste proposital com a estética enferrujada do resto — sinalizam "isso é
+diferente, isso é seguro") — sorteados por `pickStationSkin()` **sem repetir**
+até os 5 aparecerem pelo menos uma vez (`usedStationSkins[]`, resetado a cada
+`resetGame()` e sempre que o ciclo de 5 se completa). Como uma onda dura só
+25s e as estações spawnam a cada 35-55s, isso satisfaz com folga o pedido de
+"não repetir na mesma onda" sem precisar rastrear número de onda de verdade.
 Dentro de `CFG.stationHealRadius` (110), cura `CFG.stationHealRate` (14
 hp/s) enquanto a nave não estiver com vida cheia; ao chegar no máximo, a
 estação **entra em cooldown** (`CFG.stationCooldown`=40s, anel/sprite ficam
@@ -318,9 +358,11 @@ em cooldown), mesmo padrão do planeta (ciano).
 ### Destroços do cenário
 Campo infinito procedural determinístico (`genChunk`, seed por chunk),
 `DEBRIS_KEYS` inclui os 7 destroços originais (carro, ônibus, container...)
-mais 13 novos (`debRock1..8` asteroides, `debDish`/`debScrapPile`/`debBarrel`/
-`debSolarPanel`/`debCables` sucata solta) — todos com fundo removido, escala
-individual em `DEBRIS_SCALE`. São destrutíveis por **qualquer arma do
+mais 21 novos: `debRock1..8` (asteroides), `debDish`/`debScrapPile`/`debBarrel`/
+`debSolarPanel`/`debCables` (1ª leva de sucata solta), `debCarWreck`/
+`debMetalSheet`/`debTireStack`/`debBarrelOrange`/`debBarrelGreen`/
+`debJunkPile2`/`debFence`/`debDish2` (2ª leva) — todos com fundo removido,
+escala individual em `DEBRIS_SCALE`. São destrutíveis por **qualquer arma do
 jogador** (não só capangas do grupo C), mas **bloqueiam tiro inimigo** (bala
 de capanga à distância ou barragem do chefe soma no destroço sem quebrá-lo —
 cobertura tática real, ver bloco `// balas de inimigo pesado / chefe` em
@@ -444,6 +486,18 @@ carregar.
 ## Convenções / decisões de projeto
 
 - **Português** em toda UI, comentários de código e textos do jogo.
+- **Arquivos soltos na raiz do projeto** (não em `assets/`/`material_bruto/`)
+  aparecem sozinhos de vez em quando — parece ser o app de chat salvando uma
+  cópia das imagens que o usuário cola/anexa direto na pasta do projeto,
+  com nome genérico (`qzs.jpeg`, `Captura de tela ....png`, etc.), sem
+  relação com nenhuma ação do Claude. Sempre conferir `git status` antes de
+  commitar; se aparecerem, comparar hash (`md5sum`) contra o que já foi
+  extraído/arquivado em `material_bruto/ref_*` — quase sempre é duplicata
+  exata do que já foi processado, seguro apagar. Já aconteceu de um asset
+  EM USO (`assets/planet.png`) ser encontrado solto na raiz com esse mesmo
+  padrão (não uma duplicata dessa vez, o arquivo real tinha ido parar lá) —
+  sempre conferir se algo em `assets/` não sumiu antes de apagar arquivo
+  solto por engano.
 - Sprites de personagens/capangas usam `dirFrame()`/`drawDirSprite()` com
   frame 0 = norte, sentido horário — 12 direções pros capangas/chefe, 8 pra
   nave do jogador (nenhuma exceção mais precisa de hack especial, ver seção
