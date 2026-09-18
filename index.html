@@ -272,6 +272,9 @@ const CFG = {
   coinBigValue: 8,
   maxWeaponLevel: 10,     // nível máx de cada arma equipada; cada nível soma dano e (pra armas de projétil) mais tiros
   bossMinFightTime: 30,   // segundos mínimos de luta contra o chefe, mesmo com builds muito fortes
+  bossPulseCd: 2.4,       // cooldown do pulso de choque de curto alcance — pune quem fica colado no chefe
+  bossPulseRadius: 150,
+  bossPulseDmg: 16,
 };
 
 // ---------- Os 15 capangas: 3 grupos (A=fracos rápidos, B=médios/à distância, C=pesados/esponjas) ----------
@@ -501,7 +504,7 @@ const META_UPGRADES = [
   { id:'dashcd', label:'RECARGA RÁPIDA',  unit:'-0,6s recarga dash',maxLevel:3, costs:[60,120,200], icon:'assets/icon_shop_dash.jpg' },
 ];
 function dashCooldown(){
-  return Math.max(3.2, CFG.dashCooldown - (meta.metaLevels.dashcd||0)*0.6);
+  return Math.max(3.2, (CFG.dashCooldown - (meta.metaLevels.dashcd||0)*0.6) * ship.upgrades.dashCdMul);
 }
 function applyMetaUpgrades(){
   ship.upgrades.maxHpBonus += (meta.metaLevels.hp||0)*12;
@@ -511,10 +514,13 @@ function applyMetaUpgrades(){
 
 // ---------- Upgrades permanentes DENTRO da corrida (acumulam, somem só na morte) ----------
 const UPGRADE_TYPES = [
-  {id:'dmg',   label:'+DANO',      sub:'+12% de dano em todas as armas',     color:'#ff2e97', icon:'assets/icon_granada.png',   apply:s=>{ s.upgrades.dmgMul  *= 1.12; }},
-  {id:'fire',  label:'+CADÊNCIA',  sub:'+10% de velocidade de tiro',         color:'#c6ff1e', icon:'assets/icon_metralha.png',  apply:s=>{ s.upgrades.fireMul *= 1.10; }},
-  {id:'speed', label:'+VELOCIDADE',sub:'+8% de velocidade de movimento',     color:'#00e5ff', icon:'assets/icon_shop_speed.png',apply:s=>{ s.upgrades.speedMul*= 1.08; }},
-  {id:'hp',    label:'+CASCO MÁX', sub:'+15 de vida máxima, cura na hora',   color:'#ffd23f', icon:'assets/icon_shop_hp.jpg',   apply:s=>{ s.upgrades.maxHpBonus += 15; s.hp += 15; }},
+  {id:'dmg',    label:'+DANO',       sub:'+12% de dano em todas as armas',      color:'#ff2e97', icon:'assets/icon_granada.png',   apply:s=>{ s.upgrades.dmgMul  *= 1.12; }},
+  {id:'fire',   label:'+CADÊNCIA',   sub:'+10% de velocidade de tiro',          color:'#c6ff1e', icon:'assets/icon_metralha.png',  apply:s=>{ s.upgrades.fireMul *= 1.10; }},
+  {id:'speed',  label:'+VELOCIDADE', sub:'+8% de velocidade de movimento',      color:'#00e5ff', icon:'assets/icon_shop_speed.png',apply:s=>{ s.upgrades.speedMul*= 1.08; }},
+  {id:'hp',     label:'+CASCO MÁX',  sub:'+15 de vida máxima, cura na hora',    color:'#ffd23f', icon:'assets/icon_shop_hp.jpg',   apply:s=>{ s.upgrades.maxHpBonus += 15; s.hp += 15; }},
+  {id:'magnet', label:'ÍMÃ DE SUCATA',sub:'+35% de raio de atração de moeda',   color:'#00e5ff', icon:'assets/chest.png',          apply:s=>{ s.upgrades.magnetMul *= 1.35; }},
+  {id:'armor',  label:'BLINDAGEM',   sub:'-12% de dano recebido',               color:'#c6ff1e', icon:'',                          apply:s=>{ s.upgrades.dmgTakenMul *= 0.88; }},
+  {id:'dashcd', label:'PROPULSOR AUXILIAR', sub:'-15% de recarga do dash',      color:'#ff2e97', icon:'assets/icon_shop_dash.jpg', apply:s=>{ s.upgrades.dashCdMul *= 0.85; }},
 ];
 function shipMaxHp(){ return CFG.shipMaxHP + ship.upgrades.maxHpBonus; }
 function pickUpgradeChoices(n){
@@ -790,7 +796,7 @@ function resetGame(){
     hitFlashT:0, vibCd:0, muzzleFlashT:0,
     dashCd:0, invulT:0, regenFlashT:0,
     weapons:{}, // {weaponId: {level, cd}} — todas as armas equipadas disparam juntas, sem trocar nem acabar
-    upgrades:{dmgMul:1, fireMul:1, speedMul:1, maxHpBonus:0}};
+    upgrades:{dmgMul:1, fireMul:1, speedMul:1, maxHpBonus:0, magnetMul:1, dmgTakenMul:1, dashCdMul:1}};
   ['pea','leque','metralha'].concat(meta.loadout).forEach(id=>{
     if(WEAPONS[id]) ship.weapons[id] = {level:1, cd:0, burstShotsLeft:0, burstCd:0};
   });
@@ -1072,6 +1078,7 @@ function shake(mag,t){ shakeMag=Math.max(shakeMag,mag); shakeT=Math.max(shakeT,t
 function hitStop(t){ hitStopT=Math.max(hitStopT,t); }
 function damageShip(amount, cause){
   if(gameOver || amount<=0 || ship.invulT>0) return;
+  amount *= ship.upgrades.dmgTakenMul;
   ship.hp -= amount; ship.lastHitBy = cause;
   ship.hitFlashT = 0.2;
   if(ship.vibCd<=0){
@@ -1162,7 +1169,7 @@ function spawnBoss(){
   boss = {
     x: ship.x, y: ship.y-260, hp:2200, maxHp:2200, r:52,
     moveTargetX:ship.x, moveTargetY:ship.y-260, speed:60, fightTime:0,
-    barrageCd:1.2, fanCount:5, fanVolleys:0, spawnCd:3
+    barrageCd:1.2, fanCount:5, fanVolleys:0, spawnCd:3, pulseCd:CFG.bossPulseCd
   };
   document.getElementById('bossHpWrap').style.display='block';
   document.getElementById('waveLabelText').textContent = 'CHEFE';
@@ -1393,7 +1400,7 @@ function update(dt){
   coins.forEach(c=>{
     c.t+=dt; c.life-=dt;
     const d = Math.hypot(ship.x-c.x, ship.y-c.y);
-    if(d < 90){ const pull = 260*dt; c.x += (ship.x-c.x)/Math.max(d,1)*pull; c.y += (ship.y-c.y)/Math.max(d,1)*pull; }
+    if(d < 90*ship.upgrades.magnetMul){ const pull = 260*dt; c.x += (ship.x-c.x)/Math.max(d,1)*pull; c.y += (ship.y-c.y)/Math.max(d,1)*pull; }
   });
   coins = coins.filter(c=>{
     if(Math.hypot(ship.x-c.x, ship.y-c.y) < CFG.shipRadius+10){
@@ -1612,6 +1619,17 @@ function update(dt){
       }
       boss.fanVolleys++;
       if(boss.fanVolleys>=2){ boss.fanVolleys=0; boss.fanCount=Math.min(16,boss.fanCount+1); }
+    }
+    // pulso de choque de curto alcance — sem isso, ficar colado no chefe pra bater era seguro
+    // (só a barragem à distância existia); telegraph visual dá tempo de recuar (ver draw())
+    boss.pulseCd -= dt;
+    if(boss.pulseCd<=0){
+      boss.pulseCd = CFG.bossPulseCd;
+      if(Math.hypot(ship.x-boss.x, ship.y-boss.y) < CFG.bossPulseRadius){
+        damageShip(CFG.bossPulseDmg, 'boss-pulse');
+      }
+      spawnParticles(boss.x,boss.y,'#ff2e97',26,220);
+      shake(6,0.2);
     }
     // garante um combate mínimo (CFG.bossMinFightTime) mesmo com builds muito fortes — a barra ainda
     // drena visivelmente, só não deixa morrer instantâneo; some com dano legítimo depois do prazo
@@ -1962,6 +1980,17 @@ function draw(){
       ctx.beginPath(); ctx.arc(0,0, boss.r*(1.2-ft*0.15), 0, Math.PI*2); ctx.stroke();
       ctx.shadowBlur=0; ctx.globalAlpha=1;
     }
+    // telegraph do pulso de choque de curto alcance — anel tracejado no raio real do pulso,
+    // fica mais forte conforme se aproxima do disparo (dá tempo de recuar pra fora dele)
+    if(boss.pulseCd<=CFG.telegraphTime){
+      const ftp = 1 - Math.max(0,boss.pulseCd)/CFG.telegraphTime;
+      ctx.globalAlpha = 0.15 + ftp*0.45;
+      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2+ftp*4;
+      ctx.setLineDash([10,8]);
+      ctx.beginPath(); ctx.arc(0,0, CFG.bossPulseRadius, 0, Math.PI*2); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha=1;
+    }
     ctx.restore();
   }
 
@@ -1969,6 +1998,22 @@ function draw(){
   {
     const s = worldToScreen(ship.x,ship.y,camX,camY);
     const shipScale = CFG.shipRadius/12; // referência: desenho original foi calibrado pra raio 12
+
+    // aura neon: a luminosidade da nave reflete a vida — vai apagando com dano (sensação de
+    // urgência) e reacende ao curar (ship.regenFlashT, disparado em dropCoin/coleta de moeda)
+    const hpFrac = Math.max(0, ship.hp/shipMaxHp());
+    const regenBoost = ship.regenFlashT>0 ? (ship.regenFlashT/0.35)*0.35 : 0;
+    const auraR = CFG.shipRadius*(2.4+regenBoost);
+    const auraAlpha = 0.1 + hpFrac*0.45 + regenBoost;
+    const auraGrad = ctx.createRadialGradient(s.x,s.y,0, s.x,s.y,auraR);
+    auraGrad.addColorStop(0, `rgba(78,225,255,${auraAlpha})`);
+    auraGrad.addColorStop(0.55, `rgba(198,255,30,${auraAlpha*0.3})`);
+    auraGrad.addColorStop(1, 'rgba(78,225,255,0)');
+    ctx.save(); ctx.globalCompositeOperation='lighter';
+    ctx.fillStyle = auraGrad;
+    ctx.beginPath(); ctx.arc(s.x,s.y,auraR,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+
     ctx.save(); ctx.translate(s.x,s.y); ctx.rotate(ship.ang);
     const moving = Math.hypot(joy.dx,joy.dy) > 0.05;
     if(moving){
@@ -1988,13 +2033,15 @@ function draw(){
       const heroScale = heroDiam/Math.max(fw,fh);
       ctx.save(); ctx.rotate(-ship.ang);
       if(flip) ctx.scale(-1,1);
+      ctx.shadowColor = '#4ee1ff'; ctx.shadowBlur = 3 + hpFrac*15 + regenBoost*10;
       ctx.drawImage(heroImg, col*fw,row*fh,fw,fh, -fw*heroScale/2, -fh*heroScale/2, fw*heroScale, fh*heroScale);
+      ctx.shadowBlur = 0;
       ctx.restore();
       heroOk = true;
     }
     if(!heroOk){
     ctx.imageSmoothingEnabled = false;
-    ctx.shadowColor='#00e5ff'; ctx.shadowBlur=8;
+    ctx.shadowColor='#00e5ff'; ctx.shadowBlur=3+hpFrac*13+regenBoost*10;
     ctx.drawImage(heroPixCanvas,
       HERO_HULL_MINX*shipScale, HERO_HULL_MINY*shipScale,
       heroPixCanvas.width*HERO_PIX*shipScale, heroPixCanvas.height*HERO_PIX*shipScale);
