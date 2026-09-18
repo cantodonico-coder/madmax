@@ -1585,7 +1585,18 @@ function update(dt){
 
   // balas de inimigo pesado / chefe
   bossBullets.forEach(b=>{ b.x+=b.vx*dt; b.y+=b.vy*dt; b.life-=dt;
-    if(dist2(b.x,b.y,ship.x,ship.y) < (CFG.shipHitRadius+ (b.r||6))*(CFG.shipHitRadius+(b.r||6)) && b.life>0){
+    if(b.life<=0) return;
+    // destroços servem de cobertura contra tiro inimigo — bloqueiam a bala, mas não quebram
+    // com ela (só arma do jogador destrói destroço, ver "tiro vs inimigos" acima)
+    for(let i=0;i<obstacles.length;i++){
+      const o = obstacles[i];
+      if(o.destroyed) continue;
+      if(dist2(b.x,b.y,o.x,o.y) < (o.r+(b.r||6))*(o.r+(b.r||6))){
+        b.life=0; spawnParticles(b.x,b.y,'#a0a0a0',6,90);
+        break;
+      }
+    }
+    if(b.life>0 && dist2(b.x,b.y,ship.x,ship.y) < (CFG.shipHitRadius+ (b.r||6))*(CFG.shipHitRadius+(b.r||6))){
       b.life=0; damageShip(b.dmg||12, 'levou tiro');
     }
   });
