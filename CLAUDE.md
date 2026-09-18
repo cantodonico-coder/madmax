@@ -2,7 +2,7 @@
 
 ## O que é
 
-Protótipo de jogo arcade 2D top-down para **mobile** (portrait, controle por toque),
+Protótipo de jogo arcade 2D top-down para **mobile** (landscape, controle por toque),
 gênero "arena survival" tipo *bullet-heaven*: a nave do jogador atira
 automaticamente com **todas as armas equipadas ao mesmo tempo**, o jogador só
 controla o movimento (foco em desviar), sobrevive a ondas crescentes de
@@ -529,6 +529,18 @@ carregar.
   PWA instalado) cai de volta pro nudge de scroll — não tem solução 100%
   garantida multiplataforma sem virar PWA instalado
   (`display:standalone` no manifest elimina a barra de vez).
+- **Orientação: landscape** (`screen.orientation.lock('landscape')`, mesmo
+  clique de "ENTRAR NA ARENA" do fullscreen acima) — era `'portrait'`
+  originalmente, trocado a pedido do usuário pra ampliar o campo de visão
+  horizontal (mais espaço pra ver inimigos/desviar dos lados). O CSS do HUD
+  já era só posicionamento absoluto ancorado nos cantos (sem nenhum `@media`
+  ou lógica JS que assumisse portrait), então a troca não quebrou nada em
+  jogo — testado em viewport 812×375 (landscape típico de celular), nenhuma
+  sobreposição. As telas de menu (`.screen`, título/loja/game over) **não**
+  foram redesenhadas pra landscape — o conteúdo ainda assume mais altura do
+  que uma tela curta oferece, mas `.screen{overflow-y:auto}` já deixa rolável,
+  então continuam usáveis, só não ideais visualmente. Se o usuário reclamar
+  disso depois, vale revisitar o layout dessas telas especificamente.
 - Todo timer de gameplay (`ship.hitFlashT`, `dashCd`, `invulT`, etc.) é
   decrementado em `update(dt)` e ignorado quando `gameOver || choosingUpgrade`
   — pausar a escolha de upgrade pausa o jogo inteiro de propósito.

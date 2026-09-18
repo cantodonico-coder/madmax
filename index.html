@@ -2403,7 +2403,7 @@ document.getElementById('startBtn').addEventListener('click', ()=>{
   document.getElementById('titleScreen').classList.add('hidden');
   resetGame(); started = true;
   playMusic(nextGameplayTrack());
-  if(screen.orientation && screen.orientation.lock){ screen.orientation.lock('portrait').catch(()=>{}); }
+  if(screen.orientation && screen.orientation.lock){ screen.orientation.lock('landscape').catch(()=>{}); }
 });
 document.getElementById('retryBtn').addEventListener('click', ()=>{
   document.getElementById('gameOverScreen').classList.add('hidden');
