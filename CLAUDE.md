@@ -331,13 +331,22 @@ acabar munição**:
   se repetir mais de 3 armas em 3 min".
 - **Cadência acelera com o tempo de jogo** (`timeFireMul()`, cresce ~7%/min,
   capado em +60%) — pedido do usuário: "aos poucos vai acelerando aumentando
-  os tiros, se superando". Aplicado no cálculo do cooldown de disparo
-  (`wState.cd = 1/(w.rate*ship.upgrades.fireMul*timeFireMul())`), separado
-  de `ship.upgrades.fireMul` de propósito: esse é um multiplicador
-  PERMANENTE que upgrades somam nele (`*=`) — se `timeFireMul()` fosse
-  aplicado do mesmo jeito a cada frame, ia compor exponencialmente e
-  explodir em segundos. `timeFireMul()` recalcula do zero toda vez a partir
-  de `realElapsedTime`, nunca acumula.
+  os tiros, se superando". Junto com o degrau da onda 30 e o power-up
+  temporário, tudo fica combinado em `totalFireMul()` (ver seção "Escalada
+  da onda 30" abaixo), usado no cálculo do cooldown de disparo
+  (`wState.cd = 1/(w.rate*totalFireMul())`) — separado de
+  `ship.upgrades.fireMul` de propósito: esse é um multiplicador PERMANENTE
+  que upgrades somam nele (`*=`) — se os outros fatores fossem aplicados do
+  mesmo jeito a cada frame, iam compor exponencialmente e explodir em
+  segundos. Cada fator de `totalFireMul()` recalcula do zero a cada frame,
+  nenhum acumula.
+- **Limite de armas COMPRADAS equipadas: 5** (`CFG.loadoutMaxPurchased`,
+  além das 3 básicas sempre grátis — 8 ativas no máximo). Botão EQUIPAR vira
+  "LIMITE (5)" e desabilita quando o teto é atingido; comprar uma arma nova
+  não equipa automaticamente se não tiver vaga. Saves antigos (de antes
+  desse teto existir) são cortados uma vez em `loadMeta()`
+  (`meta.loadout.slice(0, CFG.loadoutMaxPurchased)`) — sem isso, quem já
+  tinha 6+ armas equipadas continuaria acima do novo limite pra sempre.
 - Disparo: em `update(dt)`, cada arma equipada tem seu próprio cooldown
   (`wState.cd`) e dispara independente das outras quando o alvo está no
   alcance — não existe mais um `ship.fireCd`/`ship.weaponId` único.
@@ -531,6 +540,55 @@ tipos e 3 escolhas por vez, praticamente sempre apareciam as mesmas opções
 (sensação de repetição); 7 dá variedade real. Ao coletar, o jogo **pausa e
 mostra 3 opções aleatórias pra escolher** (`openUpgradeChoice`, estilo
 roguelite, `pickUpgradeChoices(3)`).
+
+### Escalada da onda 30 — dificuldade infinita depois de um certo ponto
+Pedido do usuário: "depois da onda 30 tudo fica extremo acelerado... 50%
+mais rápido" (lado da nave) e "os capangas o os bosses somente a partir da
+onda 30 tudo dobra os tiros e velocidade" (lado dos inimigos, confirmado que
+CONTINUA subindo em ondas depois de 30, não é só um degrau único). Duas
+funções bem separadas, cada uma lida por quem precisa:
+- **`shipWaveMul()`** — nave do jogador: degrau FIXO de `CFG.wave30ShipMul`
+  (1.5×) a partir de `currentWaveNum()>=CFG.wave30At` (30), não sobe mais
+  depois disso. Usado em `totalFireMul()` (cadência de tiro) e no cálculo de
+  movimento da nave (`totalSpeedMul`, bloco de input/movimento em `update(dt)`).
+- **`enemyWaveMul()`** — capangas E chefe: `CFG.wave30EnemyMulBase` (2×) a
+  partir da onda 30, **+`CFG.wave30EnemyMulPerWave` (5%) a cada onda depois
+  disso** (sem teto — dificuldade genuinamente infinita no fim de uma
+  partida longa). Calculado UMA VEZ por frame (`const ewm = enemyWaveMul();`
+  antes do loop de capangas, não recalculado por capanga) e aplicado em:
+  velocidade de movimento e `fireCd` dos capangas (`update(dt)`, bloco
+  `// capangas`), e em TODOS os cooldowns/velocidades de ataque do chefe
+  (`boss.spawnCd`/`swarmCd`/`barrageCd`/`artilleryCd`, os 3 timers de estado
+  do `'charge'`, `chargeSpeed` do dash, e `sweepAngle`/`sweepDmgPerSec` do
+  `'sweep'` — literalmente todo lugar que decrementa um cooldown de ataque
+  do chefe usa `dt*ewm` em vez de `dt` cru). O pulso de choque (ver seção de
+  chefes) fica de fora de propósito — é sobre posicionamento do jogador, não
+  sobre ritmo de ataque do chefe.
+`currentWaveNum()` é a mesma fórmula usada no HUD (`Math.floor(realElapsedTime/25)+1`)
+— nada de variável nova pra rastrear onda, só reaproveita o relógio único.
+
+### Power-ups temporários do baú
+Pedido do usuário: cápsula (baú) às vezes vem com um power-up em vez de
+subir nível de arma — "muito maior, o dobro de tiros, o dobro de
+velocidade, o dobro de proteção... o tempo temporário não muda" e
+confirmado depois: mistura no MESMO baú de arma (não é um tipo de cápsula
+separado), ~50% de chance (`CFG.capsulePowerupChance`). Em vez de reter
+`c.weaponId`, a cápsula ganha `c.powerup` (`'fire'|'speed'|'shield'`,
+sorteado de `POWERUP_KEYS`) — a lógica de spawn, coleta E desenho (`draw()`,
+bloco `// cápsulas de suprimento`) toda ramifica em cima de `c.powerup` vs
+`c.weaponId` sendo `null`. `ship.tempBuffs = {fire,speed,shield}` guarda o
+tempo restante de cada um (decrementado em `update(dt)`, nunca acumula —
+pegar o mesmo power-up de novo só reseta pro valor fixo
+`CFG.powerupDuration`=12s, não soma); os 3 multiplicadores (`buffFireMul()`,
+`buffSpeedMul()`, `buffShieldMul()`) são checados direto onde já se aplicam
+os outros multiplicadores (`totalFireMul()`, movimento da nave,
+`damageShip()`). Sem arte pronta pra ícone — símbolo vetorial simples
+desenhado direto no `draw()` da cápsula (raio=tiro, seta dupla=velocidade,
+losango de escudo=proteção), mesma posição onde o ícone de arma normal
+ficaria. HUD dedicado (`#buffHud`, `updateBuffHud()`) mostra um chip por
+power-up ativo com contagem regressiva ("2×⚡ 12s"), ao lado do
+`#weaponHud`. Testado: pickup confirmado (chip aparece com cor/ícone/tempo
+corretos, texto flutuante "⚡ NOME!" também aparece).
 
 ### Feedback / juice
 Flash branco no inimigo/chefe ao ser atingido, números de dano flutuantes,

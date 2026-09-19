@@ -97,6 +97,9 @@
   .weaponChip img{width:100%;height:100%;object-fit:cover;}
   .weaponChipLvl{position:absolute;right:0;bottom:0;font-size:7px;line-height:1;padding:1px 2px;
     background:rgba(0,0,0,.8);color:var(--neon-lime);font-weight:700;border-top-left-radius:3px;}
+  .buffChip{font-size:8px;font-weight:700;padding:2px 5px;border-radius:8px;background:rgba(0,0,0,.7);
+    border:1px solid currentColor;white-space:nowrap;animation:buffPulse 1s ease-in-out infinite;}
+  @keyframes buffPulse{0%,100%{opacity:.75;}50%{opacity:1;}}
 
   /* Botão fantasma (COMO JOGAR) e painel expansível */
   .ghostBtn{background:transparent;border:1px solid #3a4550;color:var(--neon-cyan);font-family:'Courier New',monospace;
@@ -188,7 +191,8 @@
     <div id="alarmTag">⚠ REFORÇOS PESADOS CHEGANDO</div>
   </div>
   <div id="hpWrap"><div id="hpLabel">CASCO</div><div id="hpBarOuter"><div id="hpBarInner"></div></div>
-    <div id="weaponHud" style="margin-top:3px;"></div></div>
+    <div id="weaponHud" style="margin-top:3px;"></div>
+    <div id="buffHud" style="margin-top:3px;display:flex;gap:4px;"></div></div>
   <div id="scoreWrap"><div id="scoreVal">PONTOS: <span id="scoreN">0</span></div><div id="scrapVal">🔩 <span id="scrapN">0</span></div></div>
   <div id="bossHpWrap"><div id="bossName">MECHA DE SUCATA</div><div id="bossHpOuter"><div id="bossHpInner"></div></div></div>
   <div id="waveRevealBanner"></div>
@@ -265,6 +269,12 @@ const CFG = {
                           // mais frequente
   capsuleIntervalMin: 14, capsuleIntervalMax: 22,
   capsuleNoRepeatWindow: 180, // 3min — mesma arma não repete no baú dentro dessa janela (se der pra evitar)
+  capsulePowerupChance: 0.5,  // baú às vezes vem com power-up temporário em vez de subir arma
+  powerupDuration: 12,        // duração fixa dos power-ups (2x tiro/velocidade/proteção) — não muda com nada
+  wave30At: 30,                // número de ONDA onde a escalada de dificuldade "onda 30" começa
+  wave30ShipMul: 1.5,          // nave do jogador (tiro+velocidade): +50% fixo a partir da onda 30, não sobe mais depois
+  wave30EnemyMulBase: 2,       // capangas/chefes: dobro (tiro+velocidade) a partir da onda 30...
+  wave30EnemyMulPerWave: 0.05, // ...e continua subindo +5%/onda depois disso (dificuldade infinita)
   globalEnemyCap: 110,  // teto global de segurança (celulares antigos)
   telegraphTime: 0.35,  // janela de aviso visual antes de um capanga à distância atirar
   dashCooldown: 5, dashDist: 150, dashInvuln: 0.3,
@@ -290,6 +300,8 @@ const CFG = {
   stationExplodeDmg: 20,   // dano da explosão — reduzido (menos que granada/rkl88/tnt), atinge todos por perto
   stationExplodeRadius: 170,
   stationKnockback: 260,   // força do empurrão (onda de energia) na explosão
+  loadoutMaxPurchased: 5,  // máx. de armas COMPRADAS equipadas ao mesmo tempo — as 3 básicas
+                            // (pea/leque/metralha) são sempre extras, não contam nesse teto
 };
 
 // ---------- Os 15 capangas: 3 grupos (A=fracos rápidos, B=médios/à distância, C=pesados/esponjas) ----------
@@ -658,6 +670,9 @@ function loadMeta(){
       meta.scrap = d.scrap||0; meta.unlocked = d.unlocked||[]; meta.bestScore = d.bestScore||0;
       meta.metaLevels = Object.assign({hp:0, speed:0, dashcd:0}, d.metaLevels||{});
       meta.loadout = d.loadout||[];
+      // saves antigos (de antes do teto de CFG.loadoutMaxPurchased) podem ter mais armas
+      // equipadas do que o novo limite permite — corta o excesso uma vez só, na carga
+      if(meta.loadout.length > CFG.loadoutMaxPurchased) meta.loadout = meta.loadout.slice(0, CFG.loadoutMaxPurchased);
     }
   }catch(e){}
 }
@@ -852,7 +867,7 @@ function drawMiniMap(){
   // cápsulas de suprimento (prêmios)
   capsules.forEach(c=>{
     const p = toMap(c.x,c.y); if(p.x<0||p.x>cw||p.y<0||p.y>ch) return;
-    mmCtx.fillStyle = WEAPONS[c.weaponId].color; mmCtx.shadowColor=mmCtx.fillStyle; mmCtx.shadowBlur=6;
+    mmCtx.fillStyle = c.powerup ? POWERUP_TYPES[c.powerup].color : WEAPONS[c.weaponId].color; mmCtx.shadowColor=mmCtx.fillStyle; mmCtx.shadowBlur=6;
     mmCtx.beginPath(); mmCtx.arc(p.x,p.y,miniMapExpanded?4:3,0,Math.PI*2); mmCtx.fill();
   });
   // orbes de upgrade (prêmios)
@@ -996,7 +1011,8 @@ function resetGame(){
     hitFlashT:0, vibCd:0, muzzleFlashT:0,
     dashCd:0, invulT:0, regenFlashT:0,
     weapons:{}, // {weaponId: {level, cd}} — todas as armas equipadas disparam juntas, sem trocar nem acabar
-    upgrades:{dmgMul:1, fireMul:1, speedMul:1, maxHpBonus:0, magnetMul:1, dmgTakenMul:1, dashCdMul:1}};
+    upgrades:{dmgMul:1, fireMul:1, speedMul:1, maxHpBonus:0, magnetMul:1, dmgTakenMul:1, dashCdMul:1},
+    tempBuffs:{fire:0, speed:0, shield:0}};
   ['pea','leque','metralha'].concat(meta.loadout).forEach(id=>{
     if(WEAPONS[id]) ship.weapons[id] = {level:1, cd:0, burstShotsLeft:0, burstCd:0};
   });
@@ -1280,7 +1296,7 @@ function shake(mag,t){ shakeMag=Math.max(shakeMag,mag); shakeT=Math.max(shakeT,t
 function hitStop(t){ hitStopT=Math.max(hitStopT,t); }
 function damageShip(amount, cause){
   if(gameOver || amount<=0 || ship.invulT>0) return;
-  amount *= ship.upgrades.dmgTakenMul;
+  amount *= ship.upgrades.dmgTakenMul * buffShieldMul();
   ship.hp -= amount; ship.lastHitBy = cause;
   ship.hitFlashT = 0.2;
   if(ship.vibCd<=0){
@@ -1414,6 +1430,43 @@ function weaponLevelBonus(level){
 function timeFireMul(){
   return Math.min(1.6, 1 + realElapsedTime*0.0012);
 }
+// número de onda atual, mesma fórmula usada no HUD (#waveNum) — usado aqui só pra decidir
+// quando a escalada de dificuldade "onda 30" liga (ver CFG.wave30*)
+function currentWaveNum(){ return Math.max(1, Math.floor(realElapsedTime/25)+1); }
+// a partir da onda 30, nave do jogador (tiro+velocidade) fica CFG.wave30ShipMul (+50%) mais
+// rápida — um degrau FIXO, não continua subindo depois (diferente do lado dos inimigos, ver
+// enemyWaveMul() logo abaixo). Pedido do usuário: "depois da onda 30 tudo fica extremo
+// acelerado... 50% mais rápido".
+function shipWaveMul(){
+  return currentWaveNum() >= CFG.wave30At ? CFG.wave30ShipMul : 1;
+}
+// a partir da onda 30, capangas E chefe dobram tiro+velocidade, e continuam subindo mais
+// 5%/onda depois disso (dificuldade sem teto) — bem mais agressivo que o lado da nave de
+// propósito, pedido do usuário: "os capangas o os bosses somente a partir da onda 30 tudo
+// dobra os tiros e velocidade" (e confirmado que continua subindo em ondas depois de 30).
+function enemyWaveMul(){
+  const wn = currentWaveNum();
+  if(wn < CFG.wave30At) return 1;
+  return CFG.wave30EnemyMulBase * (1 + (wn-CFG.wave30At)*CFG.wave30EnemyMulPerWave);
+}
+// power-ups temporários do baú (2x tiro / 2x velocidade / 2x proteção) — duração sempre fixa
+// em CFG.powerupDuration, não é afetada por timeFireMul/wave30/nada mais ("o tempo temporário
+// não muda"). ship.tempBuffs = {fire,speed,shield} guarda o tempo restante de cada um.
+const POWERUP_TYPES = {
+  fire:   { label:'SOBRECARGA DE TIRO',    color:'#ffcf3f' },
+  speed:  { label:'IMPULSO DE MOTOR',      color:'#00e5ff' },
+  shield: { label:'ESCUDO REFORÇADO',      color:'#7cff00' },
+};
+const POWERUP_KEYS = Object.keys(POWERUP_TYPES);
+function buffFireMul(){ return ship.tempBuffs.fire>0 ? 2 : 1; }
+function buffSpeedMul(){ return ship.tempBuffs.speed>0 ? 2 : 1; }
+function buffShieldMul(){ return ship.tempBuffs.shield>0 ? 0.5 : 1; } // multiplica o DANO RECEBIDO (0.5 = metade = "2x proteção")
+// multiplicador final de cadência de tiro — junta upgrade permanente, aceleração por tempo,
+// degrau da onda 30 e o power-up temporário, tudo num lugar só (usado nos dois cálculos de
+// cooldown de arma, straight/spread/homing/etc e o modo rajada da metralha)
+function totalFireMul(){
+  return ship.upgrades.fireMul*timeFireMul()*shipWaveMul()*buffFireMul();
+}
 
 function fireWeapon(weaponId, level, tgt){
   const w = WEAPONS[weaponId];
@@ -1489,6 +1542,7 @@ function update(dt){
   if(ship.dashCd>0){ ship.dashCd = Math.max(0, ship.dashCd-dt); updateDashHud(); }
   if(ship.invulT>0) ship.invulT = Math.max(0, ship.invulT-dt);
   if(ship.regenFlashT>0) ship.regenFlashT = Math.max(0, ship.regenFlashT-dt);
+  POWERUP_KEYS.forEach(k=>{ if(ship.tempBuffs[k]>0) ship.tempBuffs[k] = Math.max(0, ship.tempBuffs[k]-dt); });
 
   if(!bossSpawned && realElapsedTime>=nextBossAt){
     bossSpawned = true; spawnBoss(); shake(10,0.5); vibrate([60,40,60]);
@@ -1547,8 +1601,9 @@ function update(dt){
   const my = joy.active ? joy.dy : kv.y;
   const mmag = Math.hypot(mx,my);
   if(mmag>0.05){
-    ship.x += (mx/Math.max(mmag,1))*mmag*CFG.shipSpeed*ship.upgrades.speedMul*dt;
-    ship.y += (my/Math.max(mmag,1))*mmag*CFG.shipSpeed*ship.upgrades.speedMul*dt;
+    const totalSpeedMul = ship.upgrades.speedMul*shipWaveMul()*buffSpeedMul();
+    ship.x += (mx/Math.max(mmag,1))*mmag*CFG.shipSpeed*totalSpeedMul*dt;
+    ship.y += (my/Math.max(mmag,1))*mmag*CFG.shipSpeed*totalSpeedMul*dt;
     // gira até o ângulo alvo numa taxa limitada, em vez de virar instantaneamente —
     // dá a sensação de manobra (curva rápida, mas visível) em vez de "deslizar de lado"
     const targetAng = Math.atan2(my,mx);
@@ -1575,11 +1630,15 @@ function update(dt){
   capsuleTimer -= dt;
   if(capsuleTimer<=0 && !boss){
     capsuleTimer = rand(CFG.capsuleIntervalMin, CFG.capsuleIntervalMax);
-    const wid = pickCapsuleWeapon();
+    // baú às vezes vem com power-up temporário (2x tiro/velocidade/proteção, CFG.powerupDuration
+    // fixo) em vez de subir nível de arma — pedido do usuário, ~50% de chance
+    const isPowerup = Math.random() < CFG.capsulePowerupChance;
+    const wid = isPowerup ? null : pickCapsuleWeapon();
+    const powerup = isPowerup ? POWERUP_KEYS[Math.floor(Math.random()*POWERUP_KEYS.length)] : null;
     const a = rand(0,Math.PI*2), d = rand(280,520);
     const cx = ship.x+Math.cos(a)*d;
     const cy = ship.y+Math.sin(a)*d;
-    capsules.push({x:cx,y:cy,weaponId:wid,life:26,t:0});
+    capsules.push({x:cx,y:cy,weaponId:wid,powerup,life:26,t:0});
     // risco: inimigos extras cercam a área da cápsula
     for(let i=0;i<3;i++){
       const ea=Math.random()*Math.PI*2, er=rand(40,90);
@@ -1590,12 +1649,19 @@ function update(dt){
   capsules.forEach(c=>{ c.t+=dt; c.life-=dt; });
   capsules = capsules.filter(c=>{
     if(Math.hypot(ship.x-c.x, ship.y-c.y) < CFG.shipRadius+22){
-      const wid = c.weaponId;
-      if(!ship.weapons[wid]) ship.weapons[wid] = {level:0, cd:0, burstShotsLeft:0, burstCd:0};
-      ship.weapons[wid].level = Math.min(CFG.maxWeaponLevel, ship.weapons[wid].level+1);
-      spawnParticles(c.x,c.y,WEAPONS[wid].color,20,180); vibrate(30);
-      floatingTags.push({x:c.x,y:c.y-24,text:WEAPONS[wid].name+' NV.'+ship.weapons[wid].level,color:WEAPONS[wid].color,life:1.2});
-      updateWeaponHud();
+      if(c.powerup){
+        const p = POWERUP_TYPES[c.powerup];
+        ship.tempBuffs[c.powerup] = CFG.powerupDuration; // duração sempre fixa, não acumula com pickup repetido
+        spawnParticles(c.x,c.y,p.color,26,220); vibrate(35);
+        floatingTags.push({x:c.x,y:c.y-24,text:'⚡ '+p.label+'!',color:p.color,life:1.3});
+      } else {
+        const wid = c.weaponId;
+        if(!ship.weapons[wid]) ship.weapons[wid] = {level:0, cd:0, burstShotsLeft:0, burstCd:0};
+        ship.weapons[wid].level = Math.min(CFG.maxWeaponLevel, ship.weapons[wid].level+1);
+        spawnParticles(c.x,c.y,WEAPONS[wid].color,20,180); vibrate(30);
+        floatingTags.push({x:c.x,y:c.y-24,text:WEAPONS[wid].name+' NV.'+ship.weapons[wid].level,color:WEAPONS[wid].color,life:1.2});
+        updateWeaponHud();
+      }
       return false;
     }
     return c.life>0;
@@ -1711,7 +1777,7 @@ function update(dt){
         if(wState.cd<=0){
           wState.burstShotsLeft = w.burst.shots;
           wState.burstCd = 0;
-          wState.cd = w.burst.chargeTime/(ship.upgrades.fireMul*timeFireMul());
+          wState.cd = w.burst.chargeTime/totalFireMul();
         }
       }
     } else {
@@ -1720,7 +1786,7 @@ function update(dt){
         const aim = computeWeaponAim(id);
         if(aim && (!needsRealTarget || dist2(ship.x,ship.y,aim.x,aim.y) < CFG.fireRange*CFG.fireRange)){
           fireWeapon(id, wState.level, aim);
-          wState.cd = 1/(w.rate*ship.upgrades.fireMul*timeFireMul());
+          wState.cd = 1/(w.rate*totalFireMul());
         }
       }
     }
@@ -1738,15 +1804,19 @@ function update(dt){
   bullets = bullets.filter(b=>b.life>0);
 
   // capangas — movimento, tiro à distância (grupo B) e quebra de destroços (grupo C)
+  // a partir da onda 30 (CFG.wave30At), capangas E chefe ficam mais rápidos/atiram mais —
+  // dobra de cara e continua subindo depois (ver enemyWaveMul()); calculado uma vez só por
+  // frame (mesmo valor pra todo mundo), não por capanga
+  const ewm = enemyWaveMul();
   enemies.forEach(e=>{
     const t = ENEMY_TYPES[e.type];
     const a = Math.atan2(ship.y-e.y, ship.x-e.x);
     e.ang = a; e.thrust = (e.thrust||0);
-    e.x += Math.cos(a)*e.speed*dt; e.y += Math.sin(a)*e.speed*dt;
+    e.x += Math.cos(a)*e.speed*ewm*dt; e.y += Math.sin(a)*e.speed*ewm*dt;
     e.thrustPhase = (e.thrustPhase||Math.random()*10) + dt*14;
     if(e.hitFlashT>0) e.hitFlashT = Math.max(0, e.hitFlashT-dt);
     if(t.ranged){
-      e.fireCd -= dt;
+      e.fireCd -= dt*ewm;
       if(e.fireCd<=0){
         e.fireCd = rand(t.fireMin,t.fireMax);
         const fa = t.aimed ? a : Math.PI/2; // mirado no jogador, ou reto pra baixo (laser vertical)
@@ -1883,7 +1953,7 @@ function update(dt){
         boss.moveTargetX = ship.x + rand(-260,260);
         boss.moveTargetY = ship.y + rand(-260,260);
       } else {
-        boss.x += dtx/dd*boss.speed*dt; boss.y += dty/dd*boss.speed*dt;
+        boss.x += dtx/dd*boss.speed*ewm*dt; boss.y += dty/dd*boss.speed*ewm*dt;
       }
     }
     // Enxame de Ferro ('swarm') convoca reforço MUITO mais rápido que os outros chefes — é
@@ -1891,13 +1961,13 @@ function update(dt){
     // (swarmCd/swarmCdMin/swarmCdDecay), em vez do ritmo padrão de 3.5-5s.
     const isSwarm = t.attackPattern==='swarm';
     const minionCap = isSwarm ? BOSS_MINION_CAP*2 : BOSS_MINION_CAP;
-    boss.spawnCd -= dt;
+    boss.spawnCd -= dt*ewm;
     if(!isSwarm && boss.spawnCd<=0){
       boss.spawnCd=rand(3.5,5);
       if(enemies.length < minionCap) spawnEnemyOfType(BOSS_REINFORCE_POOL[Math.floor(Math.random()*BOSS_REINFORCE_POOL.length)]);
     }
     if(isSwarm){
-      boss.swarmCd -= dt;
+      boss.swarmCd -= dt*ewm;
       if(boss.swarmCd<=0){
         boss.swarmCd = Math.max(t.swarmCdMin, t.swarmCdBase - boss.fightTime*t.swarmCdDecay);
         if(enemies.length < minionCap) spawnEnemyOfType(BOSS_REINFORCE_POOL[Math.floor(Math.random()*BOSS_REINFORCE_POOL.length)]);
@@ -1905,7 +1975,7 @@ function update(dt){
     }
     if(t.attackPattern==='cone'){
       // leque mirado na nave — se espalha mais a cada 2 rajadas (bullet-hell crescente)
-      boss.barrageCd -= dt;
+      boss.barrageCd -= dt*ewm;
       if(boss.barrageCd<=0){
         boss.barrageCd = Math.max(t.barrageCdMin, t.barrageCdBase - boss.fightTime*t.barrageCdDecay);
         const n=boss.fanCount, spread=Math.min(1.2,0.15*(n-1)), step= n>1?spread/(n-1):0;
@@ -1920,7 +1990,7 @@ function update(dt){
     } else if(t.attackPattern==='ring'){
       // rajada 360° simultânea (não mira na nave — é omnidirecional) — offset do primeiro
       // tiro gira a cada disparo pra "buraco" entre projéteis não ficar sempre no mesmo lugar
-      boss.barrageCd -= dt;
+      boss.barrageCd -= dt*ewm;
       if(boss.barrageCd<=0){
         boss.barrageCd = Math.max(t.barrageCdMin, t.barrageCdBase - boss.fightTime*t.barrageCdDecay);
         const n=boss.fanCount, rotOffset = rand(0,Math.PI*2/n);
@@ -1936,17 +2006,17 @@ function update(dt){
       // nave, dano por contato durante a investida. Estados: idle -> telegraph -> dashing.
       const c = boss.charge;
       if(c.state==='idle'){
-        c.t -= dt;
+        c.t -= dt*ewm;
         if(c.t<=0){ c.state='telegraph'; c.t=t.chargeTelegraph; c.tx=ship.x; c.ty=ship.y; c.hitThisDash=false; }
       } else if(c.state==='telegraph'){
-        c.t -= dt;
+        c.t -= dt*ewm;
         if(c.t<=0){
           c.state='dashing'; c.t=t.chargeDuration;
           const ddx=c.tx-boss.x, ddy=c.ty-boss.y, ddd=Math.hypot(ddx,ddy)||1;
-          c.vx=ddx/ddd*t.chargeSpeed; c.vy=ddy/ddd*t.chargeSpeed;
+          c.vx=ddx/ddd*t.chargeSpeed*ewm; c.vy=ddy/ddd*t.chargeSpeed*ewm;
         }
       } else if(c.state==='dashing'){
-        c.t -= dt;
+        c.t -= dt*ewm;
         boss.x += c.vx*dt; boss.y += c.vy*dt;
         if(!c.hitThisDash && Math.hypot(ship.x-boss.x,ship.y-boss.y) < boss.r+CFG.shipHitRadius){
           damageShip(t.chargeDmg, 'boss-charge'); c.hitThisDash=true;
@@ -1957,7 +2027,7 @@ function update(dt){
     } else if(t.attackPattern==='artillery'){
       // projétil pesado e lento — explode em área ao acertar (ou ao expirar sem acertar,
       // "quase" também machuca), ver bloco `b.artillery` em "balas de inimigo pesado / chefe"
-      boss.artilleryCd -= dt;
+      boss.artilleryCd -= dt*ewm;
       if(boss.artilleryCd<=0){
         boss.artilleryCd = Math.max(t.artilleryCdMin, t.artilleryCdBase - boss.fightTime*t.artilleryCdDecay);
         const a = Math.atan2(ship.y-boss.y, ship.x-boss.x);
@@ -1967,12 +2037,12 @@ function update(dt){
     } else if(t.attackPattern==='sweep'){
       // feixe de laser giratório contínuo — o feixe em si é o telegraph, sempre visível;
       // dodge = ficar fora do arco, não precisa reagir a nenhum "disparo" pontual
-      boss.sweepAngle += t.sweepSpeed*dt;
+      boss.sweepAngle += t.sweepSpeed*ewm*dt;
       const toShipAng = Math.atan2(ship.y-boss.y, ship.x-boss.x);
       const distShip = Math.hypot(ship.x-boss.x, ship.y-boss.y);
       let da = ((boss.sweepAngle - toShipAng + Math.PI*3) % (Math.PI*2)) - Math.PI;
       if(distShip < t.sweepRange && Math.abs(da) < t.sweepWidth){
-        damageShip(t.sweepDmgPerSec*dt, 'boss-sweep');
+        damageShip(t.sweepDmgPerSec*ewm*dt, 'boss-sweep');
       }
     }
     // pulso de choque de curto alcance — só pune ficar COLADO nele por um tempo sustentado
@@ -2021,7 +2091,16 @@ function update(dt){
   const hpBarInnerEl = document.getElementById('hpBarInner');
   hpBarInnerEl.style.width = Math.max(0,ship.hp/shipMaxHp()*100)+'%';
   hpBarInnerEl.style.boxShadow = ship.regenFlashT>0 ? '0 0 8px 1px #7cff00' : 'none';
+  updateBuffHud();
   if(ship.hp<=0){ endGame(); }
+}
+// mostra os power-ups temporários ativos (2x tiro/velocidade/proteção) com contagem regressiva
+function updateBuffHud(){
+  const el = document.getElementById('buffHud');
+  el.innerHTML = POWERUP_KEYS.filter(k=>ship.tempBuffs[k]>0).map(k=>{
+    const p = POWERUP_TYPES[k];
+    return `<div class="buffChip" style="color:${p.color}">2×${k==='fire'?'🔫':k==='speed'?'⚡':'🛡'} ${Math.ceil(ship.tempBuffs[k])}s</div>`;
+  }).join('');
 }
 
 function updateScoreHud(){
@@ -2231,7 +2310,7 @@ function draw(){
   // de longe (pedido do usuário: "baús mais evidentes com cores neon")
   capsules.forEach(c=>{
     const s = worldToScreen(c.x,c.y,camX,camY);
-    const col = WEAPONS[c.weaponId].color;
+    const col = c.powerup ? POWERUP_TYPES[c.powerup].color : WEAPONS[c.weaponId].color;
     const pulse = 0.6+Math.sin(c.t*4)*0.4;
     ctx.save();
     ctx.globalAlpha = 0.5 + Math.sin(c.t*6)*0.15;
@@ -2253,12 +2332,29 @@ function draw(){
     } else {
       ctx.beginPath(); ctx.arc(s.x,s.y,20,0,Math.PI*2); ctx.fill();
     }
-    const iconKey = WEAPON_ICON_BY_ID[c.weaponId];
-    const wIcon = iconKey && WEAPON_ICON_IMG[iconKey];
-    if(wIcon && wIcon.complete && wIcon.naturalWidth){
-      const iw = 32, ih = iw*(wIcon.naturalHeight/wIcon.naturalWidth);
-      ctx.shadowColor=col; ctx.shadowBlur=12+pulse*6;
-      ctx.drawImage(wIcon, s.x-iw/2, s.y-34-ih, iw, ih);
+    if(c.powerup){
+      // sem arte pronta pra power-up ainda — símbolo vetorial simples por cima do baú
+      // (raio=tiro, seta=velocidade, escudo=proteção), mesma posição do ícone de arma
+      ctx.save(); ctx.translate(s.x, s.y-34-14);
+      ctx.strokeStyle=col; ctx.fillStyle=col; ctx.shadowColor=col; ctx.shadowBlur=12+pulse*6; ctx.lineWidth=2;
+      if(c.powerup==='fire'){
+        ctx.beginPath(); ctx.moveTo(-4,-12); ctx.lineTo(4,-2); ctx.lineTo(-1,-2); ctx.lineTo(5,12); ctx.lineTo(-6,0); ctx.lineTo(-1,0); ctx.closePath(); ctx.fill();
+      } else if(c.powerup==='speed'){
+        ctx.beginPath(); ctx.moveTo(-8,-10); ctx.lineTo(2,0); ctx.lineTo(-8,10); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(-2,-10); ctx.lineTo(8,0); ctx.lineTo(-2,10); ctx.stroke();
+      } else {
+        ctx.beginPath(); ctx.moveTo(0,-12); ctx.lineTo(9,-7); ctx.lineTo(9,4); ctx.lineTo(0,13); ctx.lineTo(-9,4); ctx.lineTo(-9,-7); ctx.closePath(); ctx.stroke();
+      }
+      ctx.shadowBlur=0;
+      ctx.restore();
+    } else {
+      const iconKey = WEAPON_ICON_BY_ID[c.weaponId];
+      const wIcon = iconKey && WEAPON_ICON_IMG[iconKey];
+      if(wIcon && wIcon.complete && wIcon.naturalWidth){
+        const iw = 32, ih = iw*(wIcon.naturalHeight/wIcon.naturalWidth);
+        ctx.shadowColor=col; ctx.shadowBlur=12+pulse*6;
+        ctx.drawImage(wIcon, s.x-iw/2, s.y-34-ih, iw, ih);
+      }
     }
     ctx.shadowBlur=0;
     ctx.restore();
@@ -2607,12 +2703,14 @@ function renderArsenal(){
     row.innerHTML = `<div style="display:flex;align-items:center;">${iconHtml}<div><div class="arsName">${w.name}</div><div class="arsSub">dano base ${w.dmg} · sobe de nível pegando cápsulas</div></div></div>`;
     if(owned){
       const equipped = meta.loadout.includes(id);
+      const atCap = !equipped && meta.loadout.length >= CFG.loadoutMaxPurchased;
       const btn = document.createElement('button');
       btn.className = equipped ? 'arsBtn arsBtnActive' : 'arsBtn';
-      btn.textContent = equipped ? '✔ EQUIPADA' : 'EQUIPAR';
+      btn.textContent = equipped ? '✔ EQUIPADA' : (atCap ? `LIMITE (${CFG.loadoutMaxPurchased})` : 'EQUIPAR');
+      btn.disabled = atCap;
       btn.onclick = ()=>{
         if(meta.loadout.includes(id)) meta.loadout = meta.loadout.filter(w2=>w2!==id);
-        else meta.loadout.push(id);
+        else if(meta.loadout.length < CFG.loadoutMaxPurchased) meta.loadout.push(id);
         saveMeta(); renderArsenal();
       };
       row.appendChild(btn);
@@ -2622,7 +2720,11 @@ function renderArsenal(){
       btn.disabled = meta.scrap < w.cost;
       btn.onclick = ()=>{
         if(meta.scrap>=w.cost){
-          meta.scrap -= w.cost; meta.unlocked.push(id); meta.loadout.push(id); saveMeta(); renderArsenal();
+          meta.scrap -= w.cost; meta.unlocked.push(id);
+          // só equipa automaticamente se ainda tiver vaga (teto de CFG.loadoutMaxPurchased
+          // armas compradas ativas ao mesmo tempo) — comprar não deve furar o limite
+          if(meta.loadout.length < CFG.loadoutMaxPurchased) meta.loadout.push(id);
+          saveMeta(); renderArsenal();
         }
       };
       row.appendChild(btn);
