@@ -272,7 +272,10 @@ const CFG = {
   capsulePowerupChance: 0.5,  // baú às vezes vem com power-up temporário em vez de subir arma
   powerupDuration: 12,        // duração fixa dos power-ups (2x tiro/velocidade/proteção) — não muda com nada
   wave30At: 30,                // número de ONDA onde a escalada de dificuldade "onda 30" começa
-  wave30ShipMul: 1.5,          // nave do jogador (tiro+velocidade): +50% fixo a partir da onda 30, não sobe mais depois
+  wave30ShipMul: 2,             // nave do jogador (tiro+velocidade+proteção): DOBRA fixo a partir
+                                 // da onda 30, não sobe mais depois — usuário corrigiu: "depois da
+                                 // onda 30 o herói tem todos recursos fixos dobrados" (o +50% é só
+                                 // o power-up temporário do baú, ver buffFireMul/buffSpeedMul/buffShieldMul)
   wave30EnemyMulBase: 2,       // capangas/chefes: dobro (tiro+velocidade) a partir da onda 30...
   wave30EnemyMulPerWave: 0.05, // ...e continua subindo +5%/onda depois disso (dificuldade infinita)
   globalEnemyCap: 110,  // teto global de segurança (celulares antigos)
@@ -1296,7 +1299,7 @@ function shake(mag,t){ shakeMag=Math.max(shakeMag,mag); shakeT=Math.max(shakeT,t
 function hitStop(t){ hitStopT=Math.max(hitStopT,t); }
 function damageShip(amount, cause){
   if(gameOver || amount<=0 || ship.invulT>0) return;
-  amount *= ship.upgrades.dmgTakenMul * buffShieldMul();
+  amount *= ship.upgrades.dmgTakenMul * buffShieldMul() * waveShieldMul();
   ship.hp -= amount; ship.lastHitBy = cause;
   ship.hitFlashT = 0.2;
   if(ship.vibCd<=0){
@@ -1433,12 +1436,16 @@ function timeFireMul(){
 // número de onda atual, mesma fórmula usada no HUD (#waveNum) — usado aqui só pra decidir
 // quando a escalada de dificuldade "onda 30" liga (ver CFG.wave30*)
 function currentWaveNum(){ return Math.max(1, Math.floor(realElapsedTime/25)+1); }
-// a partir da onda 30, nave do jogador (tiro+velocidade) fica CFG.wave30ShipMul (+50%) mais
-// rápida — um degrau FIXO, não continua subindo depois (diferente do lado dos inimigos, ver
-// enemyWaveMul() logo abaixo). Pedido do usuário: "depois da onda 30 tudo fica extremo
-// acelerado... 50% mais rápido".
+// a partir da onda 30, nave do jogador (tiro+velocidade+proteção) fica CFG.wave30ShipMul
+// (2×, dobra) mais forte — um degrau FIXO, não continua subindo depois (diferente do lado
+// dos inimigos, ver enemyWaveMul() logo abaixo). Pedido do usuário: "depois da onda 30 o
+// herói tem todos recursos fixos dobrados".
 function shipWaveMul(){
   return currentWaveNum() >= CFG.wave30At ? CFG.wave30ShipMul : 1;
+}
+// inverso de shipWaveMul() pra dano recebido — dobrar proteção = tomar metade do dano
+function waveShieldMul(){
+  return 1/shipWaveMul();
 }
 // a partir da onda 30, capangas E chefe dobram tiro+velocidade, e continuam subindo mais
 // 5%/onda depois disso (dificuldade sem teto) — bem mais agressivo que o lado da nave de
@@ -1458,9 +1465,12 @@ const POWERUP_TYPES = {
   shield: { label:'ESCUDO REFORÇADO',      color:'#7cff00' },
 };
 const POWERUP_KEYS = Object.keys(POWERUP_TYPES);
-function buffFireMul(){ return ship.tempBuffs.fire>0 ? 2 : 1; }
-function buffSpeedMul(){ return ship.tempBuffs.speed>0 ? 2 : 1; }
-function buffShieldMul(){ return ship.tempBuffs.shield>0 ? 0.5 : 1; } // multiplica o DANO RECEBIDO (0.5 = metade = "2x proteção")
+// power-up do baú: +50% (não dobra) — vale desde a onda 1, 12s fixos. Corrigido depois do
+// usuário esclarecer: "pra o herói está valendo da primeira onda em diante, bônus de 50% a
+// mais por 12seg" — o DOBRO é reservado pro degrau permanente da onda 30 (ver shipWaveMul).
+function buffFireMul(){ return ship.tempBuffs.fire>0 ? 1.5 : 1; }
+function buffSpeedMul(){ return ship.tempBuffs.speed>0 ? 1.5 : 1; }
+function buffShieldMul(){ return ship.tempBuffs.shield>0 ? 1/1.5 : 1; } // multiplica o DANO RECEBIDO (÷1.5 = "50% mais proteção")
 // multiplicador final de cadência de tiro — junta upgrade permanente, aceleração por tempo,
 // degrau da onda 30 e o power-up temporário, tudo num lugar só (usado nos dois cálculos de
 // cooldown de arma, straight/spread/homing/etc e o modo rajada da metralha)
@@ -2099,7 +2109,7 @@ function updateBuffHud(){
   const el = document.getElementById('buffHud');
   el.innerHTML = POWERUP_KEYS.filter(k=>ship.tempBuffs[k]>0).map(k=>{
     const p = POWERUP_TYPES[k];
-    return `<div class="buffChip" style="color:${p.color}">2×${k==='fire'?'🔫':k==='speed'?'⚡':'🛡'} ${Math.ceil(ship.tempBuffs[k])}s</div>`;
+    return `<div class="buffChip" style="color:${p.color}">+50%${k==='fire'?'🔫':k==='speed'?'⚡':'🛡'} ${Math.ceil(ship.tempBuffs[k])}s</div>`;
   }).join('');
 }
 

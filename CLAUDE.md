@@ -542,15 +542,24 @@ mostra 3 opções aleatórias pra escolher** (`openUpgradeChoice`, estilo
 roguelite, `pickUpgradeChoices(3)`).
 
 ### Escalada da onda 30 — dificuldade infinita depois de um certo ponto
-Pedido do usuário: "depois da onda 30 tudo fica extremo acelerado... 50%
-mais rápido" (lado da nave) e "os capangas o os bosses somente a partir da
-onda 30 tudo dobra os tiros e velocidade" (lado dos inimigos, confirmado que
-CONTINUA subindo em ondas depois de 30, não é só um degrau único). Duas
-funções bem separadas, cada uma lida por quem precisa:
+Pedido original do usuário foi ambíguo sobre QUAL número vale onde — ele
+corrigiu depois de eu perguntar: **"pra o herói está valendo da primeira
+onda em diante, bônus de 50% a mais por 12seg [isso é o power-up do baú,
+ver seção abaixo]. Depois da onda 30 o herói tem todos recursos fixos
+dobrados."** Ou seja: o **+50%** é o power-up temporário (desde a onda 1);
+o **DOBRO (2×)** é o degrau permanente da onda 30. Não confundir os dois ao
+mexer nisso de novo. Pro lado dos inimigos, confirmado que "os capangas o
+os bosses somente a partir da onda 30 tudo dobra os tiros e velocidade" E
+que CONTINUA subindo em ondas depois de 30 (não é só um degrau único, esse
+lado é bem mais agressivo que o da nave de propósito). Duas funções bem
+separadas, cada uma lida por quem precisa:
 - **`shipWaveMul()`** — nave do jogador: degrau FIXO de `CFG.wave30ShipMul`
-  (1.5×) a partir de `currentWaveNum()>=CFG.wave30At` (30), não sobe mais
-  depois disso. Usado em `totalFireMul()` (cadência de tiro) e no cálculo de
-  movimento da nave (`totalSpeedMul`, bloco de input/movimento em `update(dt)`).
+  (2×, DOBRA) a partir de `currentWaveNum()>=CFG.wave30At` (30), não sobe
+  mais depois disso. Cobre os **3 recursos** ("todos recursos fixos"):
+  cadência (`totalFireMul()`), velocidade de movimento (`totalSpeedMul`,
+  bloco de input/movimento em `update(dt)`) E proteção — `waveShieldMul()`
+  (`=1/shipWaveMul()`) multiplica o dano recebido em `damageShip()`, dobrar
+  proteção = tomar metade do dano.
 - **`enemyWaveMul()`** — capangas E chefe: `CFG.wave30EnemyMulBase` (2×) a
   partir da onda 30, **+`CFG.wave30EnemyMulPerWave` (5%) a cada onda depois
   disso** (sem teto — dificuldade genuinamente infinita no fim de uma
@@ -566,27 +575,32 @@ funções bem separadas, cada uma lida por quem precisa:
   sobre ritmo de ataque do chefe.
 `currentWaveNum()` é a mesma fórmula usada no HUD (`Math.floor(realElapsedTime/25)+1`)
 — nada de variável nova pra rastrear onda, só reaproveita o relógio único.
+**Onda 30 = ~12 minutos de partida** (25s/onda) — usuário achou estranho
+não ver efeito na onda 9 (~3min20s), não era bug, só ainda não tinha
+chegado lá; se parecer longe demais de novo, `CFG.wave30At` é o número a
+mudar.
 
 ### Power-ups temporários do baú
 Pedido do usuário: cápsula (baú) às vezes vem com um power-up em vez de
-subir nível de arma — "muito maior, o dobro de tiros, o dobro de
-velocidade, o dobro de proteção... o tempo temporário não muda" e
-confirmado depois: mistura no MESMO baú de arma (não é um tipo de cápsula
-separado), ~50% de chance (`CFG.capsulePowerupChance`). Em vez de reter
-`c.weaponId`, a cápsula ganha `c.powerup` (`'fire'|'speed'|'shield'`,
-sorteado de `POWERUP_KEYS`) — a lógica de spawn, coleta E desenho (`draw()`,
-bloco `// cápsulas de suprimento`) toda ramifica em cima de `c.powerup` vs
-`c.weaponId` sendo `null`. `ship.tempBuffs = {fire,speed,shield}` guarda o
-tempo restante de cada um (decrementado em `update(dt)`, nunca acumula —
-pegar o mesmo power-up de novo só reseta pro valor fixo
-`CFG.powerupDuration`=12s, não soma); os 3 multiplicadores (`buffFireMul()`,
-`buffSpeedMul()`, `buffShieldMul()`) são checados direto onde já se aplicam
-os outros multiplicadores (`totalFireMul()`, movimento da nave,
-`damageShip()`). Sem arte pronta pra ícone — símbolo vetorial simples
-desenhado direto no `draw()` da cápsula (raio=tiro, seta dupla=velocidade,
-losango de escudo=proteção), mesma posição onde o ícone de arma normal
-ficaria. HUD dedicado (`#buffHud`, `updateBuffHud()`) mostra um chip por
-power-up ativo com contagem regressiva ("2×⚡ 12s"), ao lado do
+subir nível de arma — **+50%** de tiro/velocidade/proteção (não dobra —
+dobrar é reservado pro degrau permanente da onda 30, ver seção acima),
+`CFG.powerupDuration`=12s fixos, vale **desde a onda 1**. Mistura no MESMO
+baú de arma (não é um tipo de cápsula separado), ~50% de chance
+(`CFG.capsulePowerupChance`). Em vez de reter `c.weaponId`, a cápsula ganha
+`c.powerup` (`'fire'|'speed'|'shield'`, sorteado de `POWERUP_KEYS`) — a
+lógica de spawn, coleta E desenho (`draw()`, bloco `// cápsulas de
+suprimento`) toda ramifica em cima de `c.powerup` vs `c.weaponId` sendo
+`null`. `ship.tempBuffs = {fire,speed,shield}` guarda o tempo restante de
+cada um (decrementado em `update(dt)`, nunca acumula — pegar o mesmo
+power-up de novo só reseta pro valor fixo, não soma); os 3 multiplicadores
+(`buffFireMul()`=1.5, `buffSpeedMul()`=1.5, `buffShieldMul()`=1/1.5) são
+checados direto onde já se aplicam os outros multiplicadores
+(`totalFireMul()`, movimento da nave, `damageShip()`). Sem arte pronta pra
+ícone — símbolo vetorial simples desenhado direto no `draw()` da cápsula
+(raio=tiro, seta dupla=velocidade, losango de escudo=proteção), mesma
+posição onde o ícone de arma normal ficaria. HUD dedicado (`#buffHud`,
+`updateBuffHud()`) mostra um chip por
+power-up ativo com contagem regressiva ("+50%⚡ 12s"), ao lado do
 `#weaponHud`. Testado: pickup confirmado (chip aparece com cor/ícone/tempo
 corretos, texto flutuante "⚡ NOME!" também aparece).
 
