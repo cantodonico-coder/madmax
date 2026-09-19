@@ -585,8 +585,10 @@ Pedido do usuário: cápsula (baú) às vezes vem com um power-up em vez de
 subir nível de arma — **+50%** de tiro/velocidade/proteção (não dobra —
 dobrar é reservado pro degrau permanente da onda 30, ver seção acima),
 `CFG.powerupDuration`=12s fixos, vale **desde a onda 1**. Mistura no MESMO
-baú de arma (não é um tipo de cápsula separado), ~50% de chance
-(`CFG.capsulePowerupChance`). Em vez de reter `c.weaponId`, a cápsula ganha
+baú de arma (não é um tipo de cápsula separado), 75% de chance
+(`CFG.capsulePowerupChance` — subido de 50% pra 75% porque o usuário jogou
+uma sessão inteira sem pegar nenhum por azar e achou que era bug). Em vez
+de reter `c.weaponId`, a cápsula ganha
 `c.powerup` (`'fire'|'speed'|'shield'`, sorteado de `POWERUP_KEYS`) — a
 lógica de spawn, coleta E desenho (`draw()`, bloco `// cápsulas de
 suprimento`) toda ramifica em cima de `c.powerup` vs `c.weaponId` sendo
