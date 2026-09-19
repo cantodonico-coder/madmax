@@ -405,11 +405,36 @@ até os 5 aparecerem pelo menos uma vez (`usedStationSkins[]`, resetado a cada
 "não repetir na mesma onda" sem precisar rastrear número de onda de verdade.
 Dentro de `CFG.stationHealRadius` (110), cura `CFG.stationHealRate` (14
 hp/s) enquanto a nave não estiver com vida cheia; ao chegar no máximo, a
-estação **entra em cooldown** (`CFG.stationCooldown`=40s, anel/sprite ficam
-foscos) — é um respiro tático, não um esconderijo permanente. Anel pulsante
-verde (`#7cff00`) ao redor mostra o raio quando pronta; texto flutuante "⚡
+estação **entra em cooldown** (`CFG.stationCooldown`=40s, sprite fica fosco)
+— é um respiro tático, não um esconderijo permanente. Texto flutuante "⚡
 REENERGIZANDO" aparece enquanto cura. Ponto verde no minimapa (cinza quando
 em cooldown), mesmo padrão do planeta (ciano).
+
+**Visual: brilho neon, não um círculo geométrico** — a primeira versão
+desenhava um anel/círculo (`ctx.arc().stroke()`) mostrando o raio de cura
+literalmente; o usuário pediu pra remover esse círculo e usar luz neon em
+vez disso. Agora é um `radialGradient` com `globalCompositeOperation:
+'lighter'` (mesmo princípio da auréola da nave, ver "Nave do jogador") atrás
+do sprite, mais `ctx.shadowBlur` no próprio sprite — pulsa quando pronta pra
+curar, fica fraco em cooldown.
+
+**Estação leva dano de verdade e pode explodir** — diferente de destroço
+(que bloqueia tiro inimigo sem quebrar com ele), a estação **é atingida e
+perde HP** (`st.hp`, `CFG.stationHp`=70) quando uma bala inimiga a acerta
+(raio de colisão físico `CFG.stationBodyRadius`=60, menor que o raio de cura
+— checado em `update(dt)`, bloco `// balas de inimigo pesado / chefe`, ANTES
+do check de destroço). Curar nela **não é seguro**: o jogador continua
+levando tiro normalmente, e a própria estação pode ser destruída enquanto
+ele cura. Ao chegar a 0 HP, `explodeStation()`: dano em área reduzido
+(`CFG.stationExplodeDmg`=20 — bem menor que granada/rkl88/tnt) pra nave,
+capangas e chefe dentro de `CFG.stationExplodeRadius` (170), **mais um
+empurrão físico** (`applyKnockback()`, `CFG.stationKnockback`=260, com
+falloff pela distância) em todo mundo nessa área — pedido do usuário: "uma
+onda de energia é sentido balançando todas as naves próximas". Flash branco
+(`st.hitFlashT`) e leve tremor visual (flicker do brilho neon quando
+`hp/maxHp<0.4`) avisam que ela tá perto de explodir. Testado com boss
+disparando perto de uma estação parada: confirma dano acumulando, explosão
+disparando (FX + tremor de câmera) e a estação sumindo da lista depois.
 
 ### Destroços do cenário
 Campo infinito procedural determinístico (`genChunk`, seed por chunk),
@@ -450,6 +475,14 @@ roguelite, `pickUpgradeChoices(3)`).
 Flash branco no inimigo/chefe ao ser atingido, números de dano flutuantes,
 som de acerto com variação de tom (`playHitTick`), variação de pitch em
 explosões, explosões animadas (ver acima).
+
+**Cápsulas de suprimento mais evidentes**: já tinham baú (`WEAPON_ICON_IMG.chest`)
++ ícone da arma oferecida por cima (a "foto" do equipamento) e facho de luz
+subindo — só que pequenos demais pra notar de longe. Usuário pediu mais
+destaque: baú 30→46px, ícone da arma 22→32px, e uma auréola neon pulsante
+nova ao redor (`globalCompositeOperation:'lighter'`, cor da arma, raio/alpha
+oscilando com `Math.sin(c.t*4)`) — mesmo princípio de brilho usado na nave/
+estações. Ver bloco `// cápsulas de suprimento` em `draw()`.
 
 **Drop de sucata com valor variável** (`dropCoin()`): em vez de toda moeda
 valer sempre 1, agora sorteia raridade a cada drop — 88% normal (valor 1,

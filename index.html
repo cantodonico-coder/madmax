@@ -278,6 +278,13 @@ const CFG = {
   stationSpawnMin: 35, stationSpawnMax: 55, // intervalo entre novas estações aparecerem
   stationSpawnDistMin: 420, stationSpawnDistMax: 700, // distância da nave ao spawnar uma nova
   stationMaxCount: 4,      // estações mais antigas somem quando esse limite é passado
+  stationHp: 70,           // vida da estação — tiro inimigo que a atinge (jogador curando nela
+                            // continua exposto a tiro) desgasta até ela explodir
+  stationBodyRadius: 60,   // raio de colisão "física" da estação — menor que stationHealRadius
+                            // (a área de cura é bem maior que o corpo real da estrutura)
+  stationExplodeDmg: 20,   // dano da explosão — reduzido (menos que granada/rkl88/tnt), atinge todos por perto
+  stationExplodeRadius: 170,
+  stationKnockback: 260,   // força do empurrão (onda de energia) na explosão
 };
 
 // ---------- Os 15 capangas: 3 grupos (A=fracos rápidos, B=médios/à distância, C=pesados/esponjas) ----------
@@ -488,6 +495,40 @@ function pickStationSkin(){
   usedStationSkins.push(skin);
   if(usedStationSkins.length>=STATION_SKINS.length) usedStationSkins=[];
   return skin;
+}
+function applyKnockback(target, sx, sy, dist){
+  const ang = Math.atan2(target.y-sy, target.x-sx);
+  const falloff = Math.max(0, 1 - dist/CFG.stationExplodeRadius);
+  target.x += Math.cos(ang)*CFG.stationKnockback*falloff;
+  target.y += Math.sin(ang)*CFG.stationKnockback*falloff;
+}
+// estação esgotada por tiro inimigo explode — dano reduzido (comparado às armas do jogador)
+// + onda de empurrão em tudo por perto (nave, capangas, chefe), "sentida" como um safanão
+// físico em vez de só dano. Pedido do usuário: "ferindo um pouco todos a volta... mas uma
+// onda de energia é sentido balançando todas as naves próximas."
+function explodeStation(st){
+  spawnParticles(st.x,st.y,'#7cff00',50,260);
+  spawnExplosionFx(st.x,st.y,200);
+  shake(10,0.4); vibrate([60,30,60]);
+  playExplosion(true);
+  const dShip = Math.hypot(ship.x-st.x, ship.y-st.y);
+  if(dShip < CFG.stationExplodeRadius){
+    damageShip(CFG.stationExplodeDmg, 'estação de apoio explodiu');
+    applyKnockback(ship, st.x, st.y, dShip);
+  }
+  enemies.forEach(e=>{
+    const de = Math.hypot(e.x-st.x, e.y-st.y);
+    if(de < CFG.stationExplodeRadius && !e.dead){
+      e.hp -= CFG.stationExplodeDmg;
+      applyKnockback(e, st.x, st.y, de);
+      if(e.hp<=0){ e.dead=true; score+=25; dropCoin(e.x,e.y); spawnParticles(e.x,e.y,e.color,14,160); enemyDeathFx(e); }
+    }
+  });
+  if(boss){
+    const db = Math.hypot(boss.x-st.x, boss.y-st.y);
+    if(db < CFG.stationExplodeRadius){ boss.hp -= CFG.stationExplodeDmg; boss.hitFlashT=0.09; }
+  }
+  supportStations = supportStations.filter(s=>s!==st);
 }
 
 // ---------- Explosões animadas (folhas de quadros) ----------
@@ -1467,10 +1508,11 @@ function update(dt){
   if(stationTimer<=0){
     stationTimer = rand(CFG.stationSpawnMin, CFG.stationSpawnMax);
     const a = rand(0,Math.PI*2), d = rand(CFG.stationSpawnDistMin, CFG.stationSpawnDistMax);
-    supportStations.push({x: ship.x+Math.cos(a)*d, y: ship.y+Math.sin(a)*d, cooldownT:0, skin:pickStationSkin()});
+    supportStations.push({x: ship.x+Math.cos(a)*d, y: ship.y+Math.sin(a)*d, cooldownT:0, skin:pickStationSkin(), hp:CFG.stationHp, maxHp:CFG.stationHp, hitFlashT:0});
     if(supportStations.length > CFG.stationMaxCount) supportStations.shift();
   }
   supportStations.forEach(st=>{
+    if(st.hitFlashT>0) st.hitFlashT = Math.max(0, st.hitFlashT-dt);
     if(st.cooldownT>0){ st.cooldownT = Math.max(0, st.cooldownT-dt); return; }
     const d = Math.hypot(ship.x-st.x, ship.y-st.y);
     st.active = d < CFG.stationHealRadius;
@@ -1691,6 +1733,19 @@ function update(dt){
   // balas de inimigo pesado / chefe
   bossBullets.forEach(b=>{ b.x+=b.vx*dt; b.y+=b.vy*dt; b.life-=dt;
     if(b.life<=0) return;
+    // estação de apoio: ao contrário de destroço, ela REALMENTE leva dano de tiro inimigo —
+    // curar nela não deixa o jogador (nem a estação) invulnerável. Depois de esgotar o hp,
+    // explode (ver explodeStation) — risco real de ficar parado curando por tempo demais.
+    for(let i=0;i<supportStations.length;i++){
+      const st = supportStations[i];
+      if(dist2(b.x,b.y,st.x,st.y) < (CFG.stationBodyRadius+(b.r||6))*(CFG.stationBodyRadius+(b.r||6))){
+        st.hp -= (b.dmg||12); st.hitFlashT = 0.12;
+        b.life=0; spawnParticles(b.x,b.y,'#7cff00',5,90);
+        if(st.hp<=0) explodeStation(st);
+        break;
+      }
+    }
+    if(b.life<=0) return;
     // destroços servem de cobertura contra tiro inimigo — bloqueiam a bala, mas não quebram
     // com ela (só arma do jogador destrói destroço, ver "tiro vs inimigos" acima)
     for(let i=0;i<obstacles.length;i++){
@@ -1907,27 +1962,41 @@ function draw(){
     }
   }
 
-  // estações de apoio — pulsam quando prontas pra curar, ficam foscas em cooldown
+  // estações de apoio — brilho neon (não um círculo geométrico do raio) que pulsa quando
+  // pronta pra curar, fica fosco em cooldown e mais fraco/instável conforme leva dano de
+  // tiro inimigo (hp baixo = luz tremendo, avisando que ela tá perto de explodir)
   supportStations.forEach(st=>{
     const sp = worldToScreen(st.x,st.y,camX,camY);
     const margin = STATION_DIAM*0.6;
     if(sp.x<-margin||sp.x>W+margin||sp.y<-margin||sp.y>H+margin) return;
     const ready = st.cooldownT<=0;
-    const pulse = ready ? (0.5+Math.sin(performance.now()/300)*0.5) : 0;
+    const hpFrac = Math.max(0, st.hp/st.maxHp);
+    const flicker = hpFrac<0.4 ? (0.6+Math.sin(performance.now()/60)*0.4) : 1;
+    const pulse = (ready ? (0.5+Math.sin(performance.now()/300)*0.5) : 0.15) * flicker;
+    const glowColor = ready ? '#7cff00' : '#4a6b3a';
+    const glowR = STATION_DIAM*(0.75+pulse*0.35);
+    const grad = ctx.createRadialGradient(sp.x,sp.y,0, sp.x,sp.y,glowR);
+    grad.addColorStop(0, `rgba(124,255,0,${(0.12+pulse*0.3)*hpFrac+0.05})`);
+    grad.addColorStop(1, 'rgba(124,255,0,0)');
+    ctx.save(); ctx.globalCompositeOperation='lighter';
+    ctx.fillStyle=grad;
+    ctx.beginPath(); ctx.arc(sp.x,sp.y,glowR,0,Math.PI*2); ctx.fill();
+    ctx.restore();
     ctx.save();
     ctx.globalAlpha = ready ? 1 : 0.45;
     const stImg = STATION_IMGS[st.skin] || STATION_IMGS[STATION_SKINS[0]];
     if(stImg.complete && stImg.naturalWidth){
       const stScale = STATION_DIAM/Math.max(stImg.naturalWidth, stImg.naturalHeight);
       const sw = stImg.naturalWidth*stScale, sh = stImg.naturalHeight*stScale;
+      ctx.shadowColor=glowColor; ctx.shadowBlur = 10+pulse*14;
       ctx.drawImage(stImg, sp.x-sw/2, sp.y-sh/2, sw, sh);
+      ctx.shadowBlur=0;
     }
-    ctx.strokeStyle = ready ? '#7cff00' : '#5a6b4a';
-    ctx.lineWidth = 2;
-    ctx.globalAlpha = ready ? (0.25+pulse*0.35) : 0.2;
-    ctx.shadowColor = '#7cff00'; ctx.shadowBlur = ready ? 12*pulse : 0;
-    ctx.beginPath(); ctx.arc(sp.x,sp.y,CFG.stationHealRadius,0,Math.PI*2); ctx.stroke();
-    ctx.shadowBlur=0; ctx.globalAlpha=1;
+    if(st.hitFlashT>0){
+      ctx.globalAlpha = st.hitFlashT/0.12*0.5;
+      ctx.fillStyle='#fff';
+      ctx.beginPath(); ctx.arc(sp.x,sp.y,STATION_DIAM*0.4,0,Math.PI*2); ctx.fill();
+    }
     ctx.restore();
     if(st.active && st.cooldownT<=0){
       ctx.fillStyle='#7cff00'; ctx.font='bold 11px Courier New'; ctx.textAlign='center';
@@ -2016,29 +2085,39 @@ function draw(){
     ctx.shadowBlur=0; ctx.globalAlpha=1; ctx.restore();
   });
 
-  // cápsulas de suprimento — baú real com facho de luz neon, ícone da arma por cima
+  // cápsulas de suprimento — baú real com facho de luz neon, ícone da arma (a "foto" do
+  // equipamento oferecido) por cima. Aumentado e com auréola pulsante pra dar pra notar
+  // de longe (pedido do usuário: "baús mais evidentes com cores neon")
   capsules.forEach(c=>{
     const s = worldToScreen(c.x,c.y,camX,camY);
     const col = WEAPONS[c.weaponId].color;
+    const pulse = 0.6+Math.sin(c.t*4)*0.4;
     ctx.save();
     ctx.globalAlpha = 0.5 + Math.sin(c.t*6)*0.15;
     ctx.fillStyle = col; ctx.shadowColor=col; ctx.shadowBlur=20;
-    ctx.fillRect(s.x-3, -400, 6, s.y+400); // facho subindo pro céu
+    ctx.fillRect(s.x-4, -400, 8, s.y+400); // facho subindo pro céu
     ctx.globalAlpha = 1;
+    // auréola neon pulsante ao redor do baú
+    ctx.save(); ctx.globalCompositeOperation='lighter'; ctx.globalAlpha=0.22+pulse*0.18;
+    ctx.fillStyle=col; ctx.shadowColor=col; ctx.shadowBlur=28;
+    ctx.beginPath(); ctx.arc(s.x,s.y,34+pulse*10,0,Math.PI*2); ctx.fill();
+    ctx.restore();
     const chestImg = WEAPON_ICON_IMG.chest;
+    const bob = Math.sin(c.t*3)*3;
+    const size = 46;
     if(chestImg && chestImg.complete && chestImg.naturalWidth){
-      const bob = Math.sin(c.t*3)*3;
-      const size = 30;
+      ctx.shadowColor=col; ctx.shadowBlur=14+pulse*10;
       ctx.drawImage(chestImg, s.x-size/2, s.y-size/2+bob, size, size);
+      ctx.shadowBlur=0;
     } else {
-      ctx.beginPath(); ctx.arc(s.x,s.y,14,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(s.x,s.y,20,0,Math.PI*2); ctx.fill();
     }
     const iconKey = WEAPON_ICON_BY_ID[c.weaponId];
     const wIcon = iconKey && WEAPON_ICON_IMG[iconKey];
     if(wIcon && wIcon.complete && wIcon.naturalWidth){
-      const iw = 22, ih = iw*(wIcon.naturalHeight/wIcon.naturalWidth);
-      ctx.shadowColor=col; ctx.shadowBlur=8;
-      ctx.drawImage(wIcon, s.x-iw/2, s.y-26-ih, iw, ih);
+      const iw = 32, ih = iw*(wIcon.naturalHeight/wIcon.naturalWidth);
+      ctx.shadowColor=col; ctx.shadowBlur=12+pulse*6;
+      ctx.drawImage(wIcon, s.x-iw/2, s.y-34-ih, iw, ih);
     }
     ctx.shadowBlur=0;
     ctx.restore();
