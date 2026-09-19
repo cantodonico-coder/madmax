@@ -99,23 +99,33 @@ descartar aquele conteúdo de vez (ex: `audio_extras/` ainda pendente).
 ## Sistemas de jogo (estado atual, com as melhorias já incorporadas)
 
 ### Loop principal
-`ONDA` cronometrada (`waveTime`) → 4 fases de dificuldade (0–75s, 75–150s,
-150–225s, 225–300s) → aos 5:00 o chefe ("MECHA DE SUCATA") aparece → ao
-derrotá-lo, o ciclo recomeça com um respiro. Morrer termina a partida
-(`endGame()`), mas **sucata total, armas desbloqueadas, loadout e melhorias
-permanentes sobrevivem à morte** (salvas em `localStorage`, chave
-`arenamad_save_v1`). O HUD mostra "⏱ CHEFE EM MM:SS" contando regressivo
-(esconde quando ele aparece) — existe pra deixar claro que o chefe é por
-**tempo** (5min), não por número de onda.
+`ONDA` cronometrada (`realElapsedTime`) → 4 fases de dificuldade (0–75s,
+75–150s, 150–225s, 225–300s, depois disso fica na última pra sempre) → aos
+5:00 o primeiro chefe aparece → ao derrotá-lo, o jogo **continua
+imediatamente** (não termina!) e o próximo chefe aparece exatamente
+`CFG.bossInterval` (5min) depois, sem pular nem repetir onda. Morrer termina
+a partida (`endGame()`), mas **sucata total, armas desbloqueadas, loadout e
+melhorias permanentes sobrevivem à morte** (salvas em `localStorage`, chave
+`arenamad_save_v1`). O HUD mostra "⏱ CHEFE EM MM:SS" contando regressivo até
+o próximo chefe (esconde enquanto ele está na tela).
 
-**`waveTime` vs `realElapsedTime`:** são duas variáveis DIFERENTES de propósito.
-`waveTime` é o cronômetro interno usado pra fase/chefe — ele é **rebobinado**
-de propósito ao derrotar o chefe (`waveTime = CFG.bossAt-40`, dá um respiro de
-40s antes do próximo ciclo). `realElapsedTime` só cresce, nunca rebobina, e é
-usado exclusivamente pro número de "ONDA" exibido e pro banner de troca de
-onda (`#waveRevealBanner`/`showWaveReveal()`, dispara a cada 25s de
-`realElapsedTime`) — **nunca** usar `waveTime` pra isso, ou o número da onda
-"anda pra trás" visualmente depois de vencer o chefe (bug já corrigido uma vez).
+**Relógio único, contínuo, nunca para nem rebobina** (`realElapsedTime`) —
+usado pra TUDO: fase de dificuldade (`getPhase()`), gatilho de chefe
+(`nextBossAt`), número de "ONDA" exibido, banner de troca de onda e o
+relógio grande do HUD (`#waveTimer`, mostra tempo total sobrevivido). Existia
+uma segunda variável (`waveTime`) só pra fase/chefe que era **rebobinada de
+propósito** a cada chefe morto (dava um "respiro" de 40s, cada vez mais
+curto que o anterior) — **removida**: o usuário reportou que o relógio
+grande "voltava no tempo" visualmente (5:00→4:20) bem na hora que ele
+vencia o chefe, e pediu explicitamente "o tempo não pode retroceder... o
+cronômetro segue, uma única conta". Agora `nextBossAt` só faz
+`nextBossAt += CFG.bossInterval` ao matar um chefe (300s, mesmo valor de
+`CFG.bossAt`) — chefes aparecem em 5:00, 10:00, 15:00... sobre o MESMO
+relógio que nunca para, sem nenhum reset. Ao testar isso: reduzir
+`CFG.bossAt`/`CFG.bossInterval` temporariamente funciona, mas cuidado pra
+não deixar sobrando um segundo lugar que também force `bossCycleIdx` (ver
+nota na seção de chefes abaixo) — já aconteceu de um `bossCycleIdx=0` antigo
+sobrar em `resetGame()` e sobrescrever silenciosamente o valor de teste.
 
 **Duração mínima do combate do chefe:** como as armas agora acumulam e sobem
 de nível sem limite, um build forte podia matar o chefe quase
@@ -143,22 +153,26 @@ só aparece quando a nave está de fato dentro do raio e `nearT` já passou de
 `pulseNearThreshold - CFG.telegraphTime` — ou seja, só avisa quem já está
 sob risco real, não todo mundo o tempo todo.
 
-### Chefe — rotação de 3 tipos, cada um com ataque PRÓPRIO (não só stats diferentes)
-`BOSS_TYPES` define 3 chefes; `spawnBoss()` escolhe `BOSS_TYPES[bossCycleIdx % 3]`
+### Chefe — rotação de 6 tipos, cada um com ataque PRÓPRIO (não só stats diferentes)
+`BOSS_TYPES` define 6 chefes; `spawnBoss()` escolhe `BOSS_TYPES[bossCycleIdx % 6]`
 e incrementa `bossCycleIdx` — rotação **sequencial** (nunca repete até passar
-pelos 3), resetado em `resetGame()`. Cada `boss` guarda uma referência ao seu
-tipo (`boss.type`) e todo o código de combate lê os campos de lá.
+por todos), resetado em `resetGame()`. Cada `boss` guarda uma referência ao seu
+tipo (`boss.type`) e todo o código de combate lê os campos de lá. Usuário
+pediu explicitamente "mais de 7 bosses, não podem ser sempre os três" — foram
+pra 6 (dobrou); passar de 6 precisa de mais arte (só tinha 1 sprite reserva,
+`boss_bulldog_unused.png`, já usado no 4º) — os 3 procedurais (`spriteImg:
+null`, reaproveitam o chassi vetorial com cor diferente) não dependem de arte
+nova, então dá pra criar mais assim sem esperar referência.
 
-**Importante:** a primeira versão dos 3 chefes só variava HP/velocidade/cor —
-todos usavam o MESMO leque de tiros mirado, só com números diferentes. O
-usuário pediu explicitamente pra validar que cada um tem "seu tiro, sua arma
-única, não pode ser a mesma" — por isso `boss.type.attackPattern` agora separa
-de verdade o **padrão de ataque**, não só a intensidade (ver bloco `// chefe`
-em `update(dt)`, e os 3 blocos de telegraph em `draw()`):
-- **`'cone'` — MECHA DE SUCATA** (`spriteImg:null`, único que usa o desenho
-  vetorial procedural — garras girando + núcleo pulsante — em vez de sprite):
-  leque de tiros MIRADO na nave (`barrageCd`/`fanCount`), se espalha mais a
-  cada 2 rajadas. O padrão original, mantido 1:1.
+**Importante:** a primeira versão dos 3 chefes originais só variava HP/
+velocidade/cor — todos usavam o MESMO leque de tiros mirado, só com números
+diferentes. O usuário pediu explicitamente pra validar que cada um tem "seu
+tiro, sua arma única, não pode ser a mesma" — por isso `boss.type.attackPattern`
+separa de verdade o **padrão de ataque**, não só a intensidade (ver bloco
+`// chefe` em `update(dt)`, e os blocos de telegraph em `draw()`):
+- **`'cone'` — MECHA DE SUCATA** (`spriteImg:null`, vetorial): leque de tiros
+  MIRADO na nave (`barrageCd`/`fanCount`), se espalha mais a cada 2 rajadas.
+  O padrão original, mantido 1:1.
 - **`'charge'` — SENTINELA-X** (`assets/boss_sentinela.png`, ciano, rápido e
   frágil): **não atira à distância nenhuma vez** — em vez disso, `boss.charge`
   é uma máquina de estado (`idle` → `telegraph` → `dashing` → `idle`): fica
@@ -168,35 +182,56 @@ em `update(dt)`, e os 3 blocos de telegraph em `draw()`):
   `chargeDuration` (0.35s), causando `chargeDmg` (22) por contato UMA vez por
   investida (`c.hitThisDash`). O movimento de patrulha normal (perseguir
   `moveTargetX/Y`) fica pausado enquanto `boss.charge.state!=='idle'`
-  (`patrolling` em `update(dt)`) — testado visualmente, o chefe realmente
-  avança até onde a nave estava e acerta.
+  (`patrolling` em `update(dt)`).
 - **`'ring'` — AMÁLGAMA VERMELHA** (`assets/boss_amalgama.png`, laranja,
   lento e tanque): rajada **360° simultânea** (não mira na nave — sai em
   todas as direções de uma vez), com um offset de rotação aleatório a cada
-  disparo pra o "buraco" entre projéteis não ficar sempre no mesmo ângulo
-  (senão dava pra decorar uma posição seguro fixa). Reaproveita a mesma
-  variável `barrageCd`/`fanCount` do `'cone'`, só muda a distribuição angular
-  dos tiros — testado visualmente, confirma anel completo de projéteis ao
-  redor do chefe.
-Os 3 continuam com o pulso de choque de curto alcance (proximidade
-sustentada, ver acima), cada um com seu próprio raio/dano/limiar.
-Sprites novos são **single-frame** (não são folha de 12 direções como os
-outros sprites) — giram via `ctx.rotate(bossAng+Math.PI/2)` direto no `draw()`
-em vez de trocar de quadro (`drawDirSprite`), assumindo arte com o "nariz"
-pra cima por padrão (mesma convenção de `dirFrame()`). Terceiro candidato
-extraído mas não usado ainda: `material_bruto/boss_bulldog_unused.png`
-(nave blindada amarela) — disponível pra um 4º chefe futuro (com seu próprio
-`attackPattern`, se quiser manter a variedade real em vez de reskin).
+  disparo pra o "buraco" entre projéteis não ficar sempre no mesmo ângulo.
+  Reaproveita `barrageCd`/`fanCount` do `'cone'`, só muda a distribuição
+  angular dos tiros.
+- **`'artillery'` — BULLDOG BLINDADO** (`assets/boss_bulldog.png`, amarelo,
+  o mais tanque, 3400hp): projétil pesado e LENTO (`shellSpeed`=150,
+  `boss.artilleryCd`) que explode em área — em contato com a nave
+  (`explodeArtilleryShell()`, dano cai com a distância mas nunca zera dentro
+  do raio, "quase acertou também machuca") OU ao expirar sem acertar nada
+  (ver `if(b.life<=0){ if(b.artillery) explodeArtilleryShell(b); }` no bloco
+  de balas — sem isso o projétil só desaparecia de graça se não acertasse em
+  cheio). Testado: FX de explosão visível perto da nave, HUD confirma dano.
+- **`'swarm'` — ENXAME DE FERRO** (`spriteImg:null`, roxo, o mais frágil,
+  1500hp): **sem tiro próprio nenhum** — só convoca reforço MUITO mais rápido
+  (`boss.swarmCd`, cadência própria em vez do `boss.spawnCd` padrão de
+  3.5-5s dos outros) e com teto de minions em dobro (`BOSS_MINION_CAP*2`). O
+  perigo real são os capangas extra, não ele.
+- **`'sweep'` — BATEDOR-LASER** (`spriteImg:null`, amarelo, 2000hp): feixe de
+  laser **giratório contínuo** (`boss.sweepAngle += sweepSpeed*dt`), dano
+  por segundo (`sweepDmgPerSec`) enquanto a nave estiver dentro do arco
+  estreito (`sweepWidth`) e alcance (`sweepRange`). O feixe em si já É o
+  telegraph — sempre visível, sem aviso separado — desviar é só ficar fora
+  do arco. Testado: feixe amarelo renderiza girando corretamente.
+Todos os 6 continuam com o pulso de choque de curto alcance (proximidade
+sustentada, ver acima), cada um com seu próprio raio/dano/limiar. Sprites
+reais são **single-frame** (não são folha de 12 direções) — giram via
+`ctx.rotate(bossAng+Math.PI/2)` direto no `draw()`, assumindo arte com o
+"nariz" pra cima por padrão (mesma convenção de `dirFrame()`).
+
 **Como testar isto localmente** (não deixar essas mudanças no arquivo real):
-reduzir temporariamente `CFG.bossAt` (spawna rápido), `CFG.bossMinFightTime`
-e o `hp` de cada `BOSS_TYPES` (pra não precisar esperar/matar por muito
-tempo), e `bossCycleIdx` inicial (declaração `let` E a linha em `resetGame()`,
-as duas precisam mudar juntas) pra pular direto pro tipo que quer ver —
-reverter tudo antes de considerar a mudança pronta. Pra confirmar visualmente
-um ataque específico (não só "não deu erro"), vale capturar uma rajada de
-screenshots (ex.: a cada 400ms por alguns segundos) em vez de só olhar uma
-vez — o `'charge'` do Sentinela por exemplo só é visível nos ~1s em que ele
-está telegrafando ou avançando.
+reduzir temporariamente `CFG.bossAt`/`CFG.bossInterval` (spawna rápido),
+`CFG.bossMinFightTime` e o `hp` de cada `BOSS_TYPES` (pra não precisar
+esperar/matar por muito tempo), e forçar `bossCycleIdx` pra pular direto pro
+tipo que quer ver. **Cuidado**: existem DUAS atribuições de `bossCycleIdx`
+em `resetGame()` no histórico deste projeto — a declaração `let bossCycleIdx
+= 0` (topo do arquivo, só importa antes do primeiro reset) e a atribuição
+dentro de `resetGame()` (que roda TODA vez que uma partida começa, inclusive
+em testes). Só editar a de dentro de `resetGame()` tem efeito real; esquecer
+disso e editar só a declaração `let` faz o teste continuar rodando o chefe
+errado sem erro nenhum (aconteceu numa sessão de teste real). Reverter tudo
+(as DUAS linhas) antes de considerar a mudança pronta. Pra confirmar
+visualmente um ataque específico (não só "não deu erro"), vale capturar uma
+rajada de screenshots (ex.: a cada 400-500ms por alguns segundos, com espera
+inicial generosa — 1-2s — antes de começar a capturar, pra dar tempo do
+chefe realmente spawnar) em vez de só olhar uma vez — o `'charge'` do
+Sentinela e o `'artillery'` do Bulldog por exemplo só ficam visíveis por
+frações de segundo.
 
 ### Cronômetro do HUD não pode "voltar no tempo" ao derrotar um chefe
 Bug real encontrado pelo usuário: `#waveTimer` (o relógio grande "00:00"→
@@ -261,10 +296,20 @@ com barra de espaço. Desloca a nave ~150px na direção do movimento atual,
 Reformulado: antes, pegar uma cápsula TROCAVA a arma ativa com munição finita.
 Agora **todas as armas equipadas disparam ao mesmo tempo, pra sempre, sem
 acabar munição**:
-- 9 armas no total: 3 básicas sempre equipadas (pea "CANHÃO SUCATA", leque
-  "LEQUE TRIPLO", metralha "METRALHA") + 6 compráveis com sucata (missil,
+- 11 armas no total: 3 básicas sempre equipadas (pea "CANHÃO SUCATA", leque
+  "LEQUE TRIPLO", metralha "METRALHA") + 8 compráveis com sucata (missil,
   laser, granada, rkl88 "RKL-88 PESADO", tnt "TNT DEMOLIDOR", arpao "ARPÃO
-  DE ABATE" — ver `aimMode:'bossOnly'` abaixo).
+  DE ABATE" — ver `aimMode:'bossOnly'` abaixo —, canhaoRustico "CANHÃO
+  RÚSTICO" e droneExplosivo "DRONE TELEGUIADO"). Usuário pediu mais
+  variedade ("ideias de superação tecnológicas e também analógicas... pode
+  ser canhão rústico, drones teleguiados com explosivos") — essas duas
+  novas não têm arte pronta ainda, ícone gerado por canvas (mesmo padrão do
+  arpão, ver `buildCanhaoRusticoIcon()`/`buildDroneIcon()`). O drone é a
+  primeira arma **homing E explosive ao mesmo tempo** — `type:'homing'` com
+  `w.explosive:true` opcional; o código de disparo já repassa esse flag pro
+  projétil (`bullets.push({...homing:true, explosive:w.explosive, blastRadius:
+  w.radius})`) e a colisão trata AoE genericamente por `b.explosive`, então
+  nenhuma arma homing anterior precisou mudar.
 - **Loadout**: na aba ARSENAL da loja, cada arma comprada tem um botão
   EQUIPAR/✔ EQUIPADA que alterna se ela entra na partida (`meta.loadout`,
   persistido). Comprar uma arma já equipa ela automaticamente.
@@ -277,6 +322,22 @@ acabar munição**:
   e, pra armas de múltiplos projéteis (straight/spread/homing), soma mais
   tiros simultâneos por disparo (até +9). Mostra um texto flutuante
   "NOME DA ARMA NV.N" ao subir de nível.
+- **Cápsula não repete a mesma arma dentro de 3min** (`pickCapsuleWeapon()`,
+  `CFG.capsuleNoRepeatWindow`=180s, `recentCapsuleWeapons[]` guarda
+  `{id,t}` e filtra pelo relógio único `realElapsedTime`) — se filtrar
+  deixar zero opção (pool pequeno, poucas armas compradas ainda), cai pro
+  sorteio livre em vez de travar. Mesmo princípio de `pickStationSkin()`
+  (ver "Estações de apoio"), aplicado aqui a pedido do usuário: "não podem
+  se repetir mais de 3 armas em 3 min".
+- **Cadência acelera com o tempo de jogo** (`timeFireMul()`, cresce ~7%/min,
+  capado em +60%) — pedido do usuário: "aos poucos vai acelerando aumentando
+  os tiros, se superando". Aplicado no cálculo do cooldown de disparo
+  (`wState.cd = 1/(w.rate*ship.upgrades.fireMul*timeFireMul())`), separado
+  de `ship.upgrades.fireMul` de propósito: esse é um multiplicador
+  PERMANENTE que upgrades somam nele (`*=`) — se `timeFireMul()` fosse
+  aplicado do mesmo jeito a cada frame, ia compor exponencialmente e
+  explodir em segundos. `timeFireMul()` recalcula do zero toda vez a partir
+  de `realElapsedTime`, nunca acumula.
 - Disparo: em `update(dt)`, cada arma equipada tem seu próprio cooldown
   (`wState.cd`) e dispara independente das outras quando o alvo está no
   alcance — não existe mais um `ship.fireCd`/`ship.weaponId` único.
