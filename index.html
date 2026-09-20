@@ -271,7 +271,7 @@ const CFG = {
   capsuleNoRepeatWindow: 180, // 3min — mesma arma não repete no baú dentro dessa janela (se der pra evitar)
   capsulePowerupChance: 0.75, // baú às vezes vem com power-up temporário em vez de subir arma —
                                // subido de 50% pra 75% a pedido do usuário (mais fácil de notar)
-  powerupDuration: 12,        // duração fixa dos power-ups do baú (+50% adicional, empilha) — não muda com nada
+  powerupDuration: 12,        // duração fixa dos power-ups do baú (+100% adicional, empilha) — não muda com nada
   heroPermanentBonusMul: 1.5,  // nave do jogador: bônus FIXO PERMANENTE de +50% (tiro+velocidade+
                                 // proteção), ativo desde a ONDA 1, sem depender de pegar baú nenhum —
                                 // só o herói tem esse bônus inicial (capangas/bosses não, ver enemyWaveMul)
@@ -1469,15 +1469,15 @@ const POWERUP_TYPES = {
   shield: { label:'ESCUDO REFORÇADO',      color:'#7cff00' },
 };
 const POWERUP_KEYS = Object.keys(POWERUP_TYPES);
-// power-up do baú: +50% ADICIONAL, empilha em cima do bônus permanente (soma como pontos de
-// %, não multiplica) — confirmado pelo usuário: com o permanente de +50% ativo, pegar o
-// power-up do baú deixa em +100% total (1.5 + 0.5 de bônus = 2x) enquanto os 12s duram; na
-// onda 30 o permanente já está em +200% (3x), então com o baú ativo fica +250% (3.5x).
-// heroFireMul()/heroSpeedMul()/heroShieldMul() somam shipWaveMul() (já em forma de
-// multiplicador, ex. 1.5 ou 3.0) com +0.5 se o power-up correspondente estiver ativo.
-function heroFireMul(){ return shipWaveMul() + (ship.tempBuffs.fire>0 ? 0.5 : 0); }
-function heroSpeedMul(){ return shipWaveMul() + (ship.tempBuffs.speed>0 ? 0.5 : 0); }
-function heroShieldMul(){ return shipWaveMul() + (ship.tempBuffs.shield>0 ? 0.5 : 0); } // divide o DANO RECEBIDO ("+50% proteção" = toma 1/1.5 do dano)
+// power-up do baú: +100% ADICIONAL, empilha em cima do bônus permanente (soma como pontos de
+// %, não multiplica) — corrigido depois do usuário ajustar de novo: com o permanente de +50%
+// ativo, pegar o power-up do baú deixa em +150% total (1.5 + 1.0 de bônus = 2.5x) enquanto os
+// 12s duram; na onda 30 o permanente já está em +200% (3x), então com o baú ativo fica +300%
+// (4x). heroFireMul()/heroSpeedMul()/heroShieldMul() somam shipWaveMul() (já em forma de
+// multiplicador, ex. 1.5 ou 3.0) com +1.0 se o power-up correspondente estiver ativo.
+function heroFireMul(){ return shipWaveMul() + (ship.tempBuffs.fire>0 ? 1.0 : 0); }
+function heroSpeedMul(){ return shipWaveMul() + (ship.tempBuffs.speed>0 ? 1.0 : 0); }
+function heroShieldMul(){ return shipWaveMul() + (ship.tempBuffs.shield>0 ? 1.0 : 0); } // divide o DANO RECEBIDO (+1.0 de bônus = toma bem menos dano enquanto ativo)
 // multiplicador final de cadência de tiro — junta upgrade permanente, aceleração por tempo,
 // e o bônus do herói (permanente+onda30+power-up temporário, ver heroFireMul), tudo num
 // lugar só (usado nos dois cálculos de cooldown de arma, straight/spread/homing/etc e o modo
@@ -1648,8 +1648,8 @@ function update(dt){
   capsuleTimer -= dt;
   if(capsuleTimer<=0 && !boss){
     capsuleTimer = rand(CFG.capsuleIntervalMin, CFG.capsuleIntervalMax);
-    // baú às vezes vem com power-up temporário (+50% tiro/velocidade/proteção, CFG.powerupDuration
-    // fixo) em vez de subir nível de arma — pedido do usuário, ~50% de chance
+    // baú às vezes vem com power-up temporário (+100% tiro/velocidade/proteção, CFG.powerupDuration
+    // fixo) em vez de subir nível de arma — pedido do usuário, CFG.capsulePowerupChance de chance
     const isPowerup = Math.random() < CFG.capsulePowerupChance;
     const wid = isPowerup ? null : pickCapsuleWeapon();
     const powerup = isPowerup ? POWERUP_KEYS[Math.floor(Math.random()*POWERUP_KEYS.length)] : null;
@@ -2112,12 +2112,13 @@ function update(dt){
   updateBuffHud();
   if(ship.hp<=0){ endGame(); }
 }
-// mostra os power-ups temporários ativos (2x tiro/velocidade/proteção) com contagem regressiva
+// mostra os power-ups temporários ativos (+100% tiro/velocidade/proteção, empilha com o
+// bônus permanente do herói) com contagem regressiva
 function updateBuffHud(){
   const el = document.getElementById('buffHud');
   el.innerHTML = POWERUP_KEYS.filter(k=>ship.tempBuffs[k]>0).map(k=>{
     const p = POWERUP_TYPES[k];
-    return `<div class="buffChip" style="color:${p.color}">+50%${k==='fire'?'🔫':k==='speed'?'⚡':'🛡'} ${Math.ceil(ship.tempBuffs[k])}s</div>`;
+    return `<div class="buffChip" style="color:${p.color}">+100%${k==='fire'?'🔫':k==='speed'?'⚡':'🛡'} ${Math.ceil(ship.tempBuffs[k])}s</div>`;
   }).join('');
 }
 

@@ -605,13 +605,14 @@ mudar.
 
 ### Power-ups temporários do baú
 Pedido do usuário: cápsula (baú) às vezes vem com um power-up em vez de
-subir nível de arma — **+50% adicional** de tiro/velocidade/proteção,
+subir nível de arma — **+100% adicional** de tiro/velocidade/proteção
+(corrigido de +50% — usuário ajustou de novo depois de ver em jogo),
 `CFG.powerupDuration`=12s fixos. Esse power-up **empilha por cima** do
-bônus permanente do herói (ver seção acima) em vez de ser a própria fonte
-do +50% — confirmado pelo usuário: com o permanente ativo (+50% nas ondas
-1-29), pegar o power-up do baú deixa em **+100% total** (2×) enquanto os
-12s duram; na onda 30+ o permanente já está em +200% (3×), então com o baú
-ativo fica **+250% (3.5×)**. Mistura no MESMO baú de arma (não é um tipo de
+bônus permanente do herói (ver seção acima), somando em pontos percentuais
+em vez de multiplicar: com o permanente ativo (+50% nas ondas 1-29), pegar
+o power-up do baú deixa em **+150% total** (2,5×) enquanto os 12s duram; na
+onda 30+ o permanente já está em +200% (3×), então com o baú ativo fica
+**+300% (4×)**. Mistura no MESMO baú de arma (não é um tipo de
 cápsula separado), 75% de chance (`CFG.capsulePowerupChance` — subido de
 50% pra 75% porque o usuário jogou uma sessão inteira sem pegar nenhum por
 azar e achou que era bug). Em vez de reter `c.weaponId`, a cápsula ganha
@@ -624,21 +625,20 @@ power-up de novo só reseta pro valor fixo, não soma).
 
 **Multiplicador final unificado** — `heroFireMul()`/`heroSpeedMul()`/
 `heroShieldMul()` somam `shipWaveMul()` (o permanente, 1.5× ou 3× conforme
-a onda) com +0.5 se o `tempBuffs` correspondente estiver ativo:
-`shipWaveMul() + (ship.tempBuffs.fire>0 ? 0.5 : 0)`. Substituem as antigas
+a onda) com +1.0 se o `tempBuffs` correspondente estiver ativo:
+`shipWaveMul() + (ship.tempBuffs.fire>0 ? 1.0 : 0)`. Substituem as antigas
 `buffFireMul()`/`buffSpeedMul()`/`buffShieldMul()` (que multiplicavam
-direto, dando o resultado errado de 2.25× em vez de 2×) — checados direto
-onde já se aplicam os outros multiplicadores (`totalFireMul()`, movimento
-da nave, `damageShip()`, esse último dividindo o dano por `heroShieldMul()`
-em vez de multiplicar pelo inverso). Sem arte pronta pra ícone do power-up
-— símbolo vetorial simples desenhado direto no `draw()` da cápsula
-(raio=tiro, seta dupla=velocidade, losango de escudo=proteção), mesma
-posição onde o ícone de arma normal ficaria. HUD dedicado (`#buffHud`,
-`updateBuffHud()`) mostra um chip por power-up ativo com contagem
-regressiva ("+50%⚡ 12s" — o texto do chip mostra só o adicional do baú, não
-o total acumulado), ao lado do `#weaponHud`. Testado: pickup confirmado
-(chip aparece com cor/ícone/tempo corretos, texto flutuante "⚡ NOME!"
-também aparece).
+direto, dando resultado errado) — checados direto onde já se aplicam os
+outros multiplicadores (`totalFireMul()`, movimento da nave, `damageShip()`,
+esse último dividindo o dano por `heroShieldMul()` em vez de multiplicar
+pelo inverso). Sem arte pronta pra ícone do power-up — símbolo vetorial
+simples desenhado direto no `draw()` da cápsula (raio=tiro, seta
+dupla=velocidade, losango de escudo=proteção), mesma posição onde o ícone
+de arma normal ficaria. HUD dedicado (`#buffHud`, `updateBuffHud()`) mostra
+um chip por power-up ativo com contagem regressiva ("+100%⚡ 12s" — o texto
+do chip mostra só o adicional do baú, não o total acumulado), ao lado do
+`#weaponHud`. Testado: pickup confirmado (chip aparece com cor/ícone/tempo
+corretos, texto flutuante "⚡ NOME!" também aparece).
 
 ### Feedback / juice
 Flash branco no inimigo/chefe ao ser atingido, números de dano flutuantes,
