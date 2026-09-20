@@ -542,37 +542,60 @@ mostra 3 opções aleatórias pra escolher** (`openUpgradeChoice`, estilo
 roguelite, `pickUpgradeChoices(3)`).
 
 ### Escalada da onda 30 — dificuldade infinita depois de um certo ponto
-Pedido original do usuário foi ambíguo sobre QUAL número vale onde — ele
-corrigiu depois de eu perguntar: **"pra o herói está valendo da primeira
-onda em diante, bônus de 50% a mais por 12seg [isso é o power-up do baú,
-ver seção abaixo]. Depois da onda 30 o herói tem todos recursos fixos
-dobrados."** Ou seja: o **+50%** é o power-up temporário (desde a onda 1);
-o **DOBRO (2×)** é o degrau permanente da onda 30. Não confundir os dois ao
-mexer nisso de novo. Pro lado dos inimigos, confirmado que "os capangas o
-os bosses somente a partir da onda 30 tudo dobra os tiros e velocidade" E
-que CONTINUA subindo em ondas depois de 30 (não é só um degrau único, esse
-lado é bem mais agressivo que o da nave de propósito). Duas funções bem
-separadas, cada uma lida por quem precisa:
-- **`shipWaveMul()`** — nave do jogador: degrau FIXO de `CFG.wave30ShipMul`
-  (2×, DOBRA) a partir de `currentWaveNum()>=CFG.wave30At` (30), não sobe
-  mais depois disso. Cobre os **3 recursos** ("todos recursos fixos"):
-  cadência (`totalFireMul()`), velocidade de movimento (`totalSpeedMul`,
-  bloco de input/movimento em `update(dt)`) E proteção — `waveShieldMul()`
-  (`=1/shipWaveMul()`) multiplica o dano recebido em `damageShip()`, dobrar
-  proteção = tomar metade do dano.
-- **`enemyWaveMul()`** — capangas E chefe: `CFG.wave30EnemyMulBase` (2×) a
-  partir da onda 30, **+`CFG.wave30EnemyMulPerWave` (5%) a cada onda depois
-  disso** (sem teto — dificuldade genuinamente infinita no fim de uma
-  partida longa). Calculado UMA VEZ por frame (`const ewm = enemyWaveMul();`
-  antes do loop de capangas, não recalculado por capanga) e aplicado em:
-  velocidade de movimento e `fireCd` dos capangas (`update(dt)`, bloco
-  `// capangas`), e em TODOS os cooldowns/velocidades de ataque do chefe
+Pedido original do usuário foi ambíguo, e levou **três** rodadas de
+correção até fechar o número exato — histórico proposital abaixo pra não
+repetir a mesma confusão numa sessão futura:
+1. 1ª versão: entendi que o power-up do baú dobrava (2×) e o degrau da
+   onda 30 era +50%. Errado.
+2. Usuário corrigiu: **"pra o herói está valendo da primeira onda em
+   diante, bônus de 50% a mais por 12seg [isso é o power-up do baú]. Depois
+   da onda 30 o herói tem todos recursos fixos dobrados."** — ou seja, o
+   +50% era o power-up TEMPORÁRIO do baú (12s), e o degrau da onda 30 era
+   2× PERMANENTE, substituindo um baseline de 1× (sem bônus) nas ondas 1-29.
+3. Usuário corrigiu de novo, mais tarde: **"inicia o jogo com 50% fixo
+   definitivo [só do herói]... na onda 30 dobra [o 1.5x, vira 3x] de tudo
+   mundo herói, capangas e bosses"** — ou seja, o +50% NÃO é mais
+   exclusividade do power-up temporário: agora é um baseline PERMANENTE do
+   herói, ativo desde a onda 1, **sem precisar pegar baú nenhum**. E "dobra
+   na onda 30" significa dobrar esse 1.5x, virando **3×** (não 2× como na
+   versão anterior). O power-up do baú continua existindo, mas agora
+   empilha por cima desse permanente em vez de ser a própria fonte do +50%
+   (ver seção seguinte).
+
+Confirmado que capangas/bosses **não** têm esse baseline (“inicia só do
+herói”) — pro lado deles, nada muda antes da onda 30, e confirmado de novo
+que "os capangas o os bosses somente a partir da onda 30 tudo dobra os
+tiros e velocidade" E que CONTINUA subindo em ondas depois de 30 (não é só
+um degrau único, esse lado é bem mais agressivo que o da nave de
+propósito). Duas funções bem separadas, cada uma lida por quem precisa:
+- **`shipWaveMul()`** — nave do jogador: retorna o multiplicador do bônus
+  PERMANENTE — `CFG.heroPermanentBonusMul` (1.5×, ativo desde a onda 1) nas
+  ondas 1-29, e esse valor **dobrado** (`*CFG.wave30ShipMul`, 2× → vira 3×)
+  a partir de `currentWaveNum()>=CFG.wave30At` (30), fixo nesse novo
+  patamar dali em diante (não sobe mais). Não é mais "1× vs 2×" como na
+  versão anterior — agora é "1.5× vs 3×".
+- **`enemyWaveMul()`** — capangas E chefe, **inalterada** desde a versão
+  anterior: `CFG.wave30EnemyMulBase` (2×) a partir da onda 30, **+
+  `CFG.wave30EnemyMulPerWave` (5%) a cada onda depois disso** (sem teto —
+  dificuldade genuinamente infinita no fim de uma partida longa). Calculado
+  UMA VEZ por frame (`const ewm = enemyWaveMul();` antes do loop de
+  capangas, não recalculado por capanga) e aplicado em: velocidade de
+  movimento e `fireCd` dos capangas (`update(dt)`, bloco `// capangas`), e
+  em TODOS os cooldowns/velocidades de ataque do chefe
   (`boss.spawnCd`/`swarmCd`/`barrageCd`/`artilleryCd`, os 3 timers de estado
   do `'charge'`, `chargeSpeed` do dash, e `sweepAngle`/`sweepDmgPerSec` do
   `'sweep'` — literalmente todo lugar que decrementa um cooldown de ataque
   do chefe usa `dt*ewm` em vez de `dt` cru). O pulso de choque (ver seção de
   chefes) fica de fora de propósito — é sobre posicionamento do jogador, não
   sobre ritmo de ataque do chefe.
+
+O bônus de `shipWaveMul()` **não multiplica direto** em `totalFireMul()`/
+movimento/`damageShip()` — ele soma (em forma de multiplicador já resolvido,
+ver `heroFireMul()` na seção seguinte) com o power-up temporário do baú,
+porque o usuário confirmou que a pilha é ADITIVA por pontos de %, não
+multiplicativa (1.5+0.5=2.0×, não 1.5×1.5=2.25×). Ver função unificada
+`heroFireMul()`/`heroSpeedMul()`/`heroShieldMul()` abaixo.
+
 `currentWaveNum()` é a mesma fórmula usada no HUD (`Math.floor(realElapsedTime/25)+1`)
 — nada de variável nova pra rastrear onda, só reaproveita o relógio único.
 **Onda 30 = ~12 minutos de partida** (25s/onda) — usuário achou estranho
@@ -582,29 +605,40 @@ mudar.
 
 ### Power-ups temporários do baú
 Pedido do usuário: cápsula (baú) às vezes vem com um power-up em vez de
-subir nível de arma — **+50%** de tiro/velocidade/proteção (não dobra —
-dobrar é reservado pro degrau permanente da onda 30, ver seção acima),
-`CFG.powerupDuration`=12s fixos, vale **desde a onda 1**. Mistura no MESMO
-baú de arma (não é um tipo de cápsula separado), 75% de chance
-(`CFG.capsulePowerupChance` — subido de 50% pra 75% porque o usuário jogou
-uma sessão inteira sem pegar nenhum por azar e achou que era bug). Em vez
-de reter `c.weaponId`, a cápsula ganha
+subir nível de arma — **+50% adicional** de tiro/velocidade/proteção,
+`CFG.powerupDuration`=12s fixos. Esse power-up **empilha por cima** do
+bônus permanente do herói (ver seção acima) em vez de ser a própria fonte
+do +50% — confirmado pelo usuário: com o permanente ativo (+50% nas ondas
+1-29), pegar o power-up do baú deixa em **+100% total** (2×) enquanto os
+12s duram; na onda 30+ o permanente já está em +200% (3×), então com o baú
+ativo fica **+250% (3.5×)**. Mistura no MESMO baú de arma (não é um tipo de
+cápsula separado), 75% de chance (`CFG.capsulePowerupChance` — subido de
+50% pra 75% porque o usuário jogou uma sessão inteira sem pegar nenhum por
+azar e achou que era bug). Em vez de reter `c.weaponId`, a cápsula ganha
 `c.powerup` (`'fire'|'speed'|'shield'`, sorteado de `POWERUP_KEYS`) — a
 lógica de spawn, coleta E desenho (`draw()`, bloco `// cápsulas de
 suprimento`) toda ramifica em cima de `c.powerup` vs `c.weaponId` sendo
 `null`. `ship.tempBuffs = {fire,speed,shield}` guarda o tempo restante de
 cada um (decrementado em `update(dt)`, nunca acumula — pegar o mesmo
-power-up de novo só reseta pro valor fixo, não soma); os 3 multiplicadores
-(`buffFireMul()`=1.5, `buffSpeedMul()`=1.5, `buffShieldMul()`=1/1.5) são
-checados direto onde já se aplicam os outros multiplicadores
-(`totalFireMul()`, movimento da nave, `damageShip()`). Sem arte pronta pra
-ícone — símbolo vetorial simples desenhado direto no `draw()` da cápsula
+power-up de novo só reseta pro valor fixo, não soma).
+
+**Multiplicador final unificado** — `heroFireMul()`/`heroSpeedMul()`/
+`heroShieldMul()` somam `shipWaveMul()` (o permanente, 1.5× ou 3× conforme
+a onda) com +0.5 se o `tempBuffs` correspondente estiver ativo:
+`shipWaveMul() + (ship.tempBuffs.fire>0 ? 0.5 : 0)`. Substituem as antigas
+`buffFireMul()`/`buffSpeedMul()`/`buffShieldMul()` (que multiplicavam
+direto, dando o resultado errado de 2.25× em vez de 2×) — checados direto
+onde já se aplicam os outros multiplicadores (`totalFireMul()`, movimento
+da nave, `damageShip()`, esse último dividindo o dano por `heroShieldMul()`
+em vez de multiplicar pelo inverso). Sem arte pronta pra ícone do power-up
+— símbolo vetorial simples desenhado direto no `draw()` da cápsula
 (raio=tiro, seta dupla=velocidade, losango de escudo=proteção), mesma
 posição onde o ícone de arma normal ficaria. HUD dedicado (`#buffHud`,
-`updateBuffHud()`) mostra um chip por
-power-up ativo com contagem regressiva ("+50%⚡ 12s"), ao lado do
-`#weaponHud`. Testado: pickup confirmado (chip aparece com cor/ícone/tempo
-corretos, texto flutuante "⚡ NOME!" também aparece).
+`updateBuffHud()`) mostra um chip por power-up ativo com contagem
+regressiva ("+50%⚡ 12s" — o texto do chip mostra só o adicional do baú, não
+o total acumulado), ao lado do `#weaponHud`. Testado: pickup confirmado
+(chip aparece com cor/ícone/tempo corretos, texto flutuante "⚡ NOME!"
+também aparece).
 
 ### Feedback / juice
 Flash branco no inimigo/chefe ao ser atingido, números de dano flutuantes,

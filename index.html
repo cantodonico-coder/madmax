@@ -271,12 +271,15 @@ const CFG = {
   capsuleNoRepeatWindow: 180, // 3min — mesma arma não repete no baú dentro dessa janela (se der pra evitar)
   capsulePowerupChance: 0.75, // baú às vezes vem com power-up temporário em vez de subir arma —
                                // subido de 50% pra 75% a pedido do usuário (mais fácil de notar)
-  powerupDuration: 12,        // duração fixa dos power-ups (2x tiro/velocidade/proteção) — não muda com nada
+  powerupDuration: 12,        // duração fixa dos power-ups do baú (+50% adicional, empilha) — não muda com nada
+  heroPermanentBonusMul: 1.5,  // nave do jogador: bônus FIXO PERMANENTE de +50% (tiro+velocidade+
+                                // proteção), ativo desde a ONDA 1, sem depender de pegar baú nenhum —
+                                // só o herói tem esse bônus inicial (capangas/bosses não, ver enemyWaveMul)
   wave30At: 30,                // número de ONDA onde a escalada de dificuldade "onda 30" começa
-  wave30ShipMul: 2,             // nave do jogador (tiro+velocidade+proteção): DOBRA fixo a partir
-                                 // da onda 30, não sobe mais depois — usuário corrigiu: "depois da
-                                 // onda 30 o herói tem todos recursos fixos dobrados" (o +50% é só
-                                 // o power-up temporário do baú, ver buffFireMul/buffSpeedMul/buffShieldMul)
+  wave30ShipMul: 2,             // na onda 30, o bônus permanente do herói (1.5x) DOBRA, virando 3x
+                                 // (+200%), fixo dali em diante, não sobe mais depois — usuário
+                                 // confirmou: "inicia o jogo com 50% fixo definitivo [só do herói]...
+                                 // na onda 30 dobra [1.5x -> 3x]" (ver shipWaveMul/heroFireMul)
   wave30EnemyMulBase: 2,       // capangas/chefes: dobro (tiro+velocidade) a partir da onda 30...
   wave30EnemyMulPerWave: 0.05, // ...e continua subindo +5%/onda depois disso (dificuldade infinita)
   globalEnemyCap: 110,  // teto global de segurança (celulares antigos)
@@ -1300,7 +1303,7 @@ function shake(mag,t){ shakeMag=Math.max(shakeMag,mag); shakeT=Math.max(shakeT,t
 function hitStop(t){ hitStopT=Math.max(hitStopT,t); }
 function damageShip(amount, cause){
   if(gameOver || amount<=0 || ship.invulT>0) return;
-  amount *= ship.upgrades.dmgTakenMul * buffShieldMul() * waveShieldMul();
+  amount *= ship.upgrades.dmgTakenMul / heroShieldMul();
   ship.hp -= amount; ship.lastHitBy = cause;
   ship.hitFlashT = 0.2;
   if(ship.vibCd<=0){
@@ -1437,16 +1440,16 @@ function timeFireMul(){
 // número de onda atual, mesma fórmula usada no HUD (#waveNum) — usado aqui só pra decidir
 // quando a escalada de dificuldade "onda 30" liga (ver CFG.wave30*)
 function currentWaveNum(){ return Math.max(1, Math.floor(realElapsedTime/25)+1); }
-// a partir da onda 30, nave do jogador (tiro+velocidade+proteção) fica CFG.wave30ShipMul
-// (2×, dobra) mais forte — um degrau FIXO, não continua subindo depois (diferente do lado
-// dos inimigos, ver enemyWaveMul() logo abaixo). Pedido do usuário: "depois da onda 30 o
-// herói tem todos recursos fixos dobrados".
+// Nave do jogador: bônus FIXO PERMANENTE de +50% (tiro+velocidade+proteção), ativo desde a
+// ONDA 1 (não depende de pegar baú nenhum) — na onda 30 esse bônus DOBRA (1.5x -> 3x), e
+// fica fixo nesse novo patamar dali em diante (não continua subindo, diferente do lado dos
+// inimigos, ver enemyWaveMul() logo abaixo). Pedido do usuário, depois de duas rodadas de
+// correção: "inicia o jogo com 50% fixo definitivo [só do herói]... na onda 30 dobra [o 1.5x,
+// vira 3x] de tudo mundo herói, capangas e bosses" — capangas/bosses não têm bônus antes da
+// onda 30 (ver enemyWaveMul), só o herói começa com o +50% desde o início.
 function shipWaveMul(){
-  return currentWaveNum() >= CFG.wave30At ? CFG.wave30ShipMul : 1;
-}
-// inverso de shipWaveMul() pra dano recebido — dobrar proteção = tomar metade do dano
-function waveShieldMul(){
-  return 1/shipWaveMul();
+  const base = CFG.heroPermanentBonusMul;
+  return currentWaveNum() >= CFG.wave30At ? base*CFG.wave30ShipMul : base;
 }
 // a partir da onda 30, capangas E chefe dobram tiro+velocidade, e continuam subindo mais
 // 5%/onda depois disso (dificuldade sem teto) — bem mais agressivo que o lado da nave de
@@ -1457,26 +1460,30 @@ function enemyWaveMul(){
   if(wn < CFG.wave30At) return 1;
   return CFG.wave30EnemyMulBase * (1 + (wn-CFG.wave30At)*CFG.wave30EnemyMulPerWave);
 }
-// power-ups temporários do baú (2x tiro / 2x velocidade / 2x proteção) — duração sempre fixa
-// em CFG.powerupDuration, não é afetada por timeFireMul/wave30/nada mais ("o tempo temporário
-// não muda"). ship.tempBuffs = {fire,speed,shield} guarda o tempo restante de cada um.
+// power-ups temporários do baú — duração sempre fixa em CFG.powerupDuration, não é afetada
+// por timeFireMul/wave30/nada mais ("o tempo temporário não muda"). ship.tempBuffs =
+// {fire,speed,shield} guarda o tempo restante de cada um.
 const POWERUP_TYPES = {
   fire:   { label:'SOBRECARGA DE TIRO',    color:'#ffcf3f' },
   speed:  { label:'IMPULSO DE MOTOR',      color:'#00e5ff' },
   shield: { label:'ESCUDO REFORÇADO',      color:'#7cff00' },
 };
 const POWERUP_KEYS = Object.keys(POWERUP_TYPES);
-// power-up do baú: +50% (não dobra) — vale desde a onda 1, 12s fixos. Corrigido depois do
-// usuário esclarecer: "pra o herói está valendo da primeira onda em diante, bônus de 50% a
-// mais por 12seg" — o DOBRO é reservado pro degrau permanente da onda 30 (ver shipWaveMul).
-function buffFireMul(){ return ship.tempBuffs.fire>0 ? 1.5 : 1; }
-function buffSpeedMul(){ return ship.tempBuffs.speed>0 ? 1.5 : 1; }
-function buffShieldMul(){ return ship.tempBuffs.shield>0 ? 1/1.5 : 1; } // multiplica o DANO RECEBIDO (÷1.5 = "50% mais proteção")
+// power-up do baú: +50% ADICIONAL, empilha em cima do bônus permanente (soma como pontos de
+// %, não multiplica) — confirmado pelo usuário: com o permanente de +50% ativo, pegar o
+// power-up do baú deixa em +100% total (1.5 + 0.5 de bônus = 2x) enquanto os 12s duram; na
+// onda 30 o permanente já está em +200% (3x), então com o baú ativo fica +250% (3.5x).
+// heroFireMul()/heroSpeedMul()/heroShieldMul() somam shipWaveMul() (já em forma de
+// multiplicador, ex. 1.5 ou 3.0) com +0.5 se o power-up correspondente estiver ativo.
+function heroFireMul(){ return shipWaveMul() + (ship.tempBuffs.fire>0 ? 0.5 : 0); }
+function heroSpeedMul(){ return shipWaveMul() + (ship.tempBuffs.speed>0 ? 0.5 : 0); }
+function heroShieldMul(){ return shipWaveMul() + (ship.tempBuffs.shield>0 ? 0.5 : 0); } // divide o DANO RECEBIDO ("+50% proteção" = toma 1/1.5 do dano)
 // multiplicador final de cadência de tiro — junta upgrade permanente, aceleração por tempo,
-// degrau da onda 30 e o power-up temporário, tudo num lugar só (usado nos dois cálculos de
-// cooldown de arma, straight/spread/homing/etc e o modo rajada da metralha)
+// e o bônus do herói (permanente+onda30+power-up temporário, ver heroFireMul), tudo num
+// lugar só (usado nos dois cálculos de cooldown de arma, straight/spread/homing/etc e o modo
+// rajada da metralha)
 function totalFireMul(){
-  return ship.upgrades.fireMul*timeFireMul()*shipWaveMul()*buffFireMul();
+  return ship.upgrades.fireMul*timeFireMul()*heroFireMul();
 }
 
 function fireWeapon(weaponId, level, tgt){
@@ -1612,7 +1619,7 @@ function update(dt){
   const my = joy.active ? joy.dy : kv.y;
   const mmag = Math.hypot(mx,my);
   if(mmag>0.05){
-    const totalSpeedMul = ship.upgrades.speedMul*shipWaveMul()*buffSpeedMul();
+    const totalSpeedMul = ship.upgrades.speedMul*heroSpeedMul();
     ship.x += (mx/Math.max(mmag,1))*mmag*CFG.shipSpeed*totalSpeedMul*dt;
     ship.y += (my/Math.max(mmag,1))*mmag*CFG.shipSpeed*totalSpeedMul*dt;
     // gira até o ângulo alvo numa taxa limitada, em vez de virar instantaneamente —
@@ -1641,7 +1648,7 @@ function update(dt){
   capsuleTimer -= dt;
   if(capsuleTimer<=0 && !boss){
     capsuleTimer = rand(CFG.capsuleIntervalMin, CFG.capsuleIntervalMax);
-    // baú às vezes vem com power-up temporário (2x tiro/velocidade/proteção, CFG.powerupDuration
+    // baú às vezes vem com power-up temporário (+50% tiro/velocidade/proteção, CFG.powerupDuration
     // fixo) em vez de subir nível de arma — pedido do usuário, ~50% de chance
     const isPowerup = Math.random() < CFG.capsulePowerupChance;
     const wid = isPowerup ? null : pickCapsuleWeapon();
