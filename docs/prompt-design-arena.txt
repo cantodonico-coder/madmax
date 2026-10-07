@@ -1,0 +1,47 @@
+# PROMPT DE DESIGN DE JOGO: ARENA ARCADE (MOBILE - VERTICAL)
+# MECÂNICA PRINCIPAL: MISTURA ROGUELIKE + ROGUELITE
+
+Você é um Game Designer e Programador especialista em jogos mobile 2D. Use as especificações abaixo para estruturar o código e as mecânicas de um jogo viciante em pixel art para celulares, unindo o desafio de recomeçar do zero com a liberação de novos conteúdos.
+
+---
+
+## 1. VISÃO GERAL E ATMOSFERA (MAD MAX ESPACIAL)
+- **Orientação da Tela:** Modo Vertical (Portrait) para jogar com apenas um polegar.
+- **Estilo Visual:** Pixel art 2D industrial e gasta. Tons escuros e metálicos contrastando com luzes neon brilhantes (rosa choque, verde limão, ciano) nos tiros e propulsores.
+- **Câmera:** Centralizada na nave. A arena se estende além da tela, mas possui limites físicos com cercas de energia neon que causam dano ao encostar.
+
+---
+
+## 2. CONTROLES E MOVIMENTAÇÃO MOBILE
+- **Analógico Virtual Flutuante:** Fica invisível na tela. Onde o jogador tocar com o polegar, o analógico se posiciona.
+- **Manobra Diagonal / Giro Brusco:** O código detecta mudanças rápidas de ângulo no analógico (movimento de chicote). A nave executa uma curva fechada instantânea, soltando partículas de faíscas neon e fumaça preta pixelada.
+- **Hitbox Reduzida:** A caixa de colisão da nave é menor que o sprite visual para garantir desvios milimétricos e gerar adrenalina.
+
+---
+
+## 3. TIRO AUTOMÁTICO E CAIXAS QUE CAEM DO CÉU
+- **Tiro Automático:** A nave mira e dispara sozinha no inimigo mais próximo. O jogador foca apenas em pilotar e desviar.
+- **Cápsulas de Suprimento:** Armas potentes caem na arena. Uma fumaça ou laser sinaliza o local da queda. Inimigos cercam a área, criando um ponto de alto risco.
+- **Durabilidade da Arma:** As armas especiais gastam munição rapidamente. Ao zerar, a nave volta para a pistola básica de sucata.
+
+---
+
+## 4. SISTEMA DE RECOMEÇO (MISTURA ROGUELIKE + ROGUELITE)
+O jogo pune a morte, mas recompensa a persistência liberando novas mecânicas:
+- **Punição Roguelike (Perde Tudo):** Ao morrer, o nível da nave, os upgrades da partida e as armas atuais são totalmente perdidos. O jogador volta à estaca zero.
+- **Progressão Roguelite (Menu Meta):** A sucata coletada na arena fica salva no menu principal. O jogador usa essa sucata para **DESBLOQUEAR** novas armas e itens.
+- **A Regra do Jogo:** Armas desbloqueadas no menu principal passam a ter chance de **cair do céu** dentro das caixas de suprimento nas próximas tentativas do jogador.
+
+---
+
+## 5. RITMO EM ONDAS E CHEFÕES
+O relógio corre direto sem pausar o jogo, mudando o comportamento do mapa a cada ciclo:
+- **Minutos 0:00 a 1:15 (Onda 1):** Inimigos básicos de sucata, rápidos e fracos.
+- **Minuto 1:15 (Alarme Visual):** Aviso neon de horda se aproximando. Entram naves pesadas que atiram lasers verticais.
+- **Minuto 5:00 (Onda do Chefão):** Um Mecha gigante feito de restos de naves urbanas invade a arena. O jogo vira um "Bullet Hell" (inferno de balas). O jogador desvia usando as manobras bruscas enquanto o tiro automático ataca o Boss.
+
+---
+
+## 6. SUCO DO JOGO (JUICE)
+- **Vibração Háptica:** Microvibrações no celular ao coletar moedas e explosões. Vibração forte ao levar dano.
+- **Screen Shake e Hit Stop:** Tremor de tela nas explosões e congelamento de 1 frame em impactos críticos para dar peso aos golpes.
